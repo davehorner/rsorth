@@ -1,6 +1,27 @@
 version: '3'
 
 tasks:
+
+  setup-vcpkg:
+    desc: Setting up vcpkg
+    cmds:
+      - echo Setting up vcpkg...
+      - if (! test -d "vcpkg") then (git clone https://github.com/Microsoft/vcpkg.git) fi
+      - if (! test -f "vcpkg\\vcpkg.exe") then (cd vcpkg && bootstrap-vcpkg.bat) fi
+      - cmd /c vcpkg\\vcpkg.exe integrate install
+  sorth:clone:
+    desc: get sorth c++
+    cmds:
+      - git clone https://github.com/davehorner/sorth
+  sorth:build:
+    desc: Build the Sorth C++ interpreter
+    dir: sorth/
+    cmds:
+      - cmd /c mkdir -p build || exit 0
+      - cmake -DCMAKE_TOOLCHAIN_FILE=..\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake --preset=default -G Ninja
+      - cmd /c cd build && ninja -C build
+
+
   build:
     desc: Build the Rust Sorth interpreter
     cmds:
@@ -36,7 +57,6 @@ tasks:
     desc: Build the C++ FFI test library (Windows example)
     cmds:
       - g++ -shared -o tests/TestLib.dll tests/test_ffi_lib.cpp
-    platforms: [windows]
 
   clean:
     desc: Clean build artifacts
