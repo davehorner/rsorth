@@ -10,6 +10,7 @@ mod lang;
 
 /// Module for the runtime and the data structures used by the interpreter.  As well as the
 /// interpreter itself.
+#[macro_use]
 mod runtime;
 
 use runtime::{

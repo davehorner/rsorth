@@ -126,21 +126,21 @@ impl DataObjectDefinition {
     ///
     /// The word "Person.name" only pushes the index of the field onto the stack.  For example:
     ///
-    /// ```
+    /// ```forth
     /// ( Write a new name to a person variable. )
     /// "Bob" person @ Person.name #!
     /// ```
     ///
     /// Where as "Person.name!" combines the index and the write into a single operation:
     ///
-    /// ```
+    /// ```forth
     /// ( Write a new name to a person variable. )
     /// "Bob" person @ Person.name!
     /// ```
     ///
     /// Finally "Person.name!!" will also perform the variable dereference for you:
     ///
-    /// ```
+    /// ```forth
     /// ( Write a new name to a person variable.)
     /// "Bob" person Person.name!!
     /// ```

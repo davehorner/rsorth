@@ -127,6 +127,114 @@ fn word_push_to(interpreter: &mut dyn Interpreter) -> error::Result<()> {
 
 /// Register the stack manipulation words.
 pub fn register_stack_words(interpreter: &mut dyn Interpreter) {
+    // Forth-compatible stack words
+    add_native_word!(
+        interpreter,
+        "depth",
+        |interp: &mut dyn Interpreter| {
+            interp.push((interp.stack().len() as i64).to_value());
+            Ok(())
+        },
+        "( -- n ) Pushes the current stack depth.",
+        "-- n"
+    );
+    add_native_word!(
+        interpreter,
+        "clearstack",
+        |interp: &mut dyn Interpreter| {
+            while interp.stack().len() > 0 {
+                interp.pop()?;
+            }
+            Ok(())
+        },
+        "( ... -- ) Clears the stack.",
+        "... --"
+    );
+    // Forth-compatible 'pick' (0 = top): copy nth value to top, do not remove
+    add_native_word!(
+        interpreter,
+        "pick",
+        |interp: &mut dyn Interpreter| {
+            let n = interp.pop_as_int()?;
+            let len = interp.stack().len();
+            if n < 0 || (n as usize) >= len {
+                return Err(script_error::<crate::runtime::error::ScriptError>(interp, format!("pick: index {} out of range {}", n, len)).unwrap_err());
+            }
+            let idx = len - 1 - n as usize;
+            let value = interp.stack()[idx].clone();
+            interp.push(value);
+            Ok(())
+        },
+        "( ... n -- ... x ) Copy nth stack item to top (0=top)",
+        "... n -- ... x"
+    );
+    // Forth-compatible 'roll' (0 = top): remove nth item (0=top) and insert at top, shifting all above it down by one
+    add_native_word!(
+        interpreter,
+        "roll",
+        |interp: &mut dyn Interpreter| {
+            let n = interp.pop_as_int()?;
+            let len = interp.stack().len();
+            if n < 0 || (n as usize) >= len {
+                return Err(script_error::<crate::runtime::error::ScriptError>(interp, format!("roll: index {} out of range {}", n, len)).unwrap_err());
+            }
+            let idx = len - 1 - n as usize;
+            let mut stack = interp.stack().clone();
+            let value = stack.remove(idx);
+            stack.push(value);
+            // Clear and restore stack
+            while interp.stack().len() > 0 {
+                interp.pop()?;
+            }
+            // Restore in correct order (bottom to top)
+            for v in stack.iter() {
+                interp.push(v.clone());
+            }
+            Ok(())
+        },
+        "( ... n -- ... ) Move nth stack item to top (0=top)",
+        "... n -- ..."
+    );
+    // Forth-compatible 'over' (n1 n2 -- n1 n2 n1): duplicate second-to-top value
+    add_native_word!(
+        interpreter,
+        "over",
+        |interp: &mut dyn Interpreter| {
+            let len = interp.stack().len();
+            if len < 2 {
+                return Err(script_error::<crate::runtime::error::ScriptError>(interp, "over: stack underflow".to_string()).unwrap_err());
+            }
+            let n1 = interp.stack()[len - 2].clone();
+            interp.push(n1);
+            Ok(())
+        },
+        "( n1 n2 -- n1 n2 n1 ) Copy second item to top.",
+        "n1 n2 -- n1 n2 n1"
+    );
+    // Forth-compatible 'rot' (n1 n2 n3 -- n2 n3 n1): rotate third-to-top to top
+    add_native_word!(
+        interpreter,
+        "rot",
+        |interp: &mut dyn Interpreter| {
+            let len = interp.stack().len();
+            if len < 3 {
+                return Err(script_error::<crate::runtime::error::ScriptError>(interp, "rot: stack underflow".to_string()).unwrap_err());
+            }
+            let mut stack = interp.stack().clone();
+            let n1 = stack.remove(len - 3);
+            stack.push(n1);
+            // Clear and restore stack
+            while interp.stack().len() > 0 {
+                interp.pop()?;
+            }
+            for v in stack {
+                interp.push(v);
+            }
+            Ok(())
+        },
+        "( n1 n2 n3 -- n2 n3 n1 ) Rotate third to top.",
+        "n1 n2 n3 -- n2 n3 n1"
+    );
     add_native_word!(
         interpreter,
         "dup",
@@ -153,22 +261,6 @@ pub fn register_stack_words(interpreter: &mut dyn Interpreter) {
 
     add_native_word!(
         interpreter,
-        "over",
-        word_over,
-        "Make a copy of the top value and place the copy under the second.",
-        "a b -- b a b"
-    );
-
-    add_native_word!(
-        interpreter,
-        "rot",
-        word_rot,
-        "Rotate the top 3 values on the stack.",
-        "a b c -- c a b"
-    );
-
-    add_native_word!(
-        interpreter,
         "stack.depth",
         word_stack_depth,
         "Get the depth of the stack before calling this word.",
@@ -181,14 +273,6 @@ pub fn register_stack_words(interpreter: &mut dyn Interpreter) {
         word_stack_max_depth,
         "Get the current maximum depth of the stack.",
         " -- depth"
-    );
-
-    add_native_word!(
-        interpreter,
-        "pick",
-        word_pick,
-        "Pick the value n locations down in the stack and push it on the top.",
-        "n -- value"
     );
 
     add_native_word!(

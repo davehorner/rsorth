@@ -222,8 +222,7 @@ fn word_bit_right_shift(interpreter: &mut dyn Interpreter) -> error::Result<()> 
 fn word_equal(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let b = interpreter.pop()?;
     let a = interpreter.pop()?;
-    let result = a == b;
-
+    let result = if a == b { -1i64 } else { 0i64 };
     interpreter.push(result.to_value());
     Ok(())
 }
@@ -258,9 +257,8 @@ fn word_less_equal(interpreter: &mut dyn Interpreter) -> error::Result<()> {
 fn word_greater(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let b = interpreter.pop()?;
     let a = interpreter.pop()?;
-
-    interpreter.push((a > b).to_value());
-
+    let result = if a > b { -1i64 } else { 0i64 };
+    interpreter.push(result.to_value());
     Ok(())
 }
 
@@ -270,14 +268,48 @@ fn word_greater(interpreter: &mut dyn Interpreter) -> error::Result<()> {
 fn word_less(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let b = interpreter.pop()?;
     let a = interpreter.pop()?;
-
-    interpreter.push((a < b).to_value());
-
+    let result = if a < b { -1i64 } else { 0i64 };
+    interpreter.push(result.to_value());
     Ok(())
 }
 
 /// Regester all of the math, logic, bit, and equality words.
 pub fn register_math_logic_and_bit_words(interpreter: &mut dyn Interpreter) {
+        // Forth-compatible comparison and boolean words
+    add_native_word!(
+        interpreter,
+        "0=",
+        |interp: &mut dyn Interpreter| {
+            let a = interp.pop_as_int()?;
+            interp.push((if a == 0 { -1i64 } else { 0i64 }).to_value());
+            Ok(())
+        },
+        "( n -- flag ) True if n is zero.",
+        "n -- flag"
+    );
+    add_native_word!(
+        interpreter,
+        "<>",
+        |interp: &mut dyn Interpreter| {
+            let b = interp.pop()?;
+            let a = interp.pop()?;
+            let result = if a != b { -1i64 } else { 0i64 };
+            interp.push(result.to_value());
+            Ok(())
+        },
+        "( a b -- flag ) True if a is not equal to b.",
+        "a b -- flag"
+    );
+        add_native_word!(
+            interpreter,
+            "true",
+            |interp: &mut dyn Interpreter| {
+                interp.push((-1i64).to_value());
+                Ok(())
+            },
+            "( -- true ) Pushes Forth true (-1) onto the stack.",
+            "-- true"
+        );
     // Math ops.
     add_native_word!(
         interpreter,
@@ -375,6 +407,36 @@ pub fn register_math_logic_and_bit_words(interpreter: &mut dyn Interpreter) {
         word_bit_not,
         "Bitwise NOT a number.",
         "number -- result"
+    );
+
+    // Forth-compatible bitwise logic aliases
+    add_native_word!(
+        interpreter,
+        "invert",
+        word_bit_not,
+        "Bitwise NOT (Forth: invert)",
+        "n -- ~n"
+    );
+    add_native_word!(
+        interpreter,
+        "and",
+        word_bit_and,
+        "Bitwise AND (Forth: and)",
+        "n1 n2 -- n"
+    );
+    add_native_word!(
+        interpreter,
+        "or",
+        word_bit_or,
+        "Bitwise OR (Forth: or)",
+        "n1 n2 -- n"
+    );
+    add_native_word!(
+        interpreter,
+        "xor",
+        word_bit_xor,
+        "Bitwise XOR (Forth: xor)",
+        "n1 n2 -- n"
     );
 
     add_native_word!(

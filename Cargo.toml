@@ -1,4 +1,6 @@
+
 [features]
+default = ["uses_iceoryx2"]
 uses_iceoryx2 = ["iceoryx2", "iceoryx2-bb-log"]
 
 [package]
@@ -46,3 +48,10 @@ optional = true
 [dependencies.iceoryx2-bb-log]
 version = "0.7.0"
 optional = true
+
+[[bin]]
+name = "test_spawn"
+path = "src/test_spawn.rs"
+
+[dev-dependencies]
+test-case = "3.3.1"

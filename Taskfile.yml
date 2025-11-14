@@ -72,3 +72,107 @@ tasks:
     desc: Lint Rust code
     cmds:
       - cargo clippy -- -D warnings
+
+  sorth:
+    desc: Run sorth with a Forth script and optional arguments
+    cmds:
+      - |
+        if [ -n "${SCRIPT}" ]; then sorth/dist/sorth.exe ${SCRIPT} ${CLI_ARGS}; else sorth/dist/sorth.exe iox_sub.f ${CLI_ARGS}; fi
+    vars:
+      SCRIPT: ""
+      CLI_ARGS: ""
+    silent: false
+
+  rsorth:
+    desc: Run the Rust Sorth interpreter with a Forth script and optional arguments
+    cmds:
+      - |
+        {{if eq .CLI_ARGS ""}}
+        cargo run --release --bin sorth -- iox_sub.f
+        {{else}}
+        cargo run --release --bin sorth -- {{.CLI_ARGS}}
+        {{end}}
+    vars:
+      CLI_ARGS: ""
+    silent: false
+
+  pubsub-test:
+    desc: Run publisher and subscriber scripts in parallel (integration test)
+    cmds:
+      - cmd /c start cmd /c "task rsorth -- iox_sub.f"
+      - cmd /c start cmd /c "task rsorth -- iox_pub.f"
+    silent: false
+
+  pubsub-capture:
+    desc: Run pub/sub test and capture output to logs
+    cmds:
+      - cmd /c del /q sub.log pub.log 2>nul
+      - cmd /c start /b cmd /c "task rsorth -- CLI_ARGS=iox_sub.f > sub.log 2>&1"
+      - cmd /c start /b cmd /c "task rsorth -- CLI_ARGS=iox_pub.f > pub.log 2>&1"
+      - cmd /c timeout /t 12 >nul
+      - cmd /c echo === SUBSCRIBER OUTPUT ===
+      - cmd /c type sub.log
+      - cmd /c echo === PUBLISHER OUTPUT ===
+      - cmd /c type pub.log
+    silent: false
+
+  iox2-example-test:
+    desc: Run Iceoryx2 Rust publish/subscribe example (official test)
+    cmds:
+      - cmd /c start cmd /c "cargo run --example publish_subscribe_subscriber"
+      - cmd /c start cmd /c "cargo run --example publish_subscribe_publisher"
+      - cmd /c timeout /t 10 >nul
+    silent: false
+
+  iox2-example-capture:
+    desc: Run Iceoryx2 Rust publish/subscribe example and capture output
+    cmds:
+      - cmd /c del /q iox2_sub.log iox2_pub.log 2>nul
+      - cmd /c start /b cmd /c "cargo run --example publish_subscribe_subscriber > iox2_sub.log 2>&1"
+      - cmd /c start /b cmd /c "cargo run --example publish_subscribe_publisher > iox2_pub.log 2>&1"
+      - cmd /c timeout /t 10 >nul
+      - cmd /c echo === SUBSCRIBER OUTPUT ===
+      - cmd /c type iox2_sub.log
+      - cmd /c echo === PUBLISHER OUTPUT ===
+      - cmd /c type iox2_pub.log
+    silent: false
+
+  iox2-pubsub-example-capture:
+    desc: Run Iceoryx2 Rust publish/subscribe example from examples dir and capture output
+    dir: iceoryx2
+    cmds:
+      - cd examples/rust/publish_subscribe && cmd /c del /q sub.log pub.log 2>nul
+      - cd examples/rust/publish_subscribe && cmd /c start /b cmd /c "cargo run --bin subscriber > sub.log 2>&1"
+      - cd examples/rust/publish_subscribe && cmd /c start /b cmd /c "cargo run --bin publisher > pub.log 2>&1"
+      - cmd /c timeout /t 10 >nul
+      - cmd /c echo === SUBSCRIBER OUTPUT ===
+      - cmd /c type examples\rust\publish_subscribe\sub.log
+      - cmd /c echo === PUBLISHER OUTPUT ===
+      - cmd /c type examples\rust\publish_subscribe\pub.log
+    silent: false
+
+  iox2-pubsub-example-capture-wsl:
+    desc: Run Iceoryx2 Rust publish/subscribe example in WSL and capture output
+    cmds:
+      - wsl bash -c 'cd /mnt/c/w/f/rsorth/iceoryx2/examples/rust/publish_subscribe && rm -f sub.log pub.log'
+      - wsl bash -c 'cd /mnt/c/w/f/rsorth/iceoryx2/examples/rust/publish_subscribe && (cargo run --bin subscriber > sub.log 2>&1 &)' 
+      - wsl bash -c 'cd /mnt/c/w/f/rsorth/iceoryx2/examples/rust/publish_subscribe && (cargo run --bin publisher > pub.log 2>&1 &)' 
+      - wsl bash -c 'sleep 10'
+      - wsl bash -c 'echo === SUBSCRIBER OUTPUT ==='
+      - wsl bash -c 'cat /mnt/c/w/f/rsorth/iceoryx2/examples/rust/publish_subscribe/sub.log'
+      - wsl bash -c 'echo === PUBLISHER OUTPUT ==='
+      - wsl bash -c 'cat /mnt/c/w/f/rsorth/iceoryx2/examples/rust/publish_subscribe/pub.log'
+    silent: false
+
+  clone-forth-rs:
+    desc: Clone davehorner/forth-rs and run it
+    cmds:
+      - git clone https://github.com/davehorner/forth-rs.git
+      - cd forth-rs && cargo run
+    silent: false
+
+  forth-rs-test:
+    desc: Run tests in the forth-rs project
+    cmds:
+      - cd forth-rs && cargo test
+    silent: false

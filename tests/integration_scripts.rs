@@ -149,3 +149,11 @@ fn test_01_test_loops_lib() {
     assert!(result.is_ok(), "Script failed: {:?}", result.err());
     // If you add output capturing to the interpreter, call assert_01_test_loops_output here.
 }
+
+#[test]
+#[cfg(feature = "uses_iceoryx2")]
+fn test_iox_pubsub_forth() {
+    let output = run_script("tests/iox_pubsub.f");
+    println!("\n--- Output of iox_pubsub.f ---\n{}\n-------------------------------", output);
+    assert!(output.contains("hello from forth"), "Did not receive expected pub/sub message in output");
+}

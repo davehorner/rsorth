@@ -1,8 +1,12 @@
+mod simple_arithmetic_words;
 /// Mostly words that are used to change or read the state of the interpreter.
 mod sorth_words;
 
 /// Words that manipulate the data stack.
 mod stack_words;
+
+use std::thread;
+use std::time::Duration;
 
 /// Simple constants.
 mod constant_words;
@@ -47,6 +51,7 @@ use crate::runtime::{
         sorth_words::register_sorth_words, stack_words::register_stack_words,
         string_words::register_string_words, value_type_words::register_value_type_words,
         word_creation_words::register_word_creation_words, word_words::register_word_words,
+        simple_arithmetic_words::register_simple_arithmetic_words,
     },
     interpreter::Interpreter,
 };
@@ -56,6 +61,7 @@ pub fn register_base_words(interpreter: &mut dyn Interpreter) {
     register_sorth_words(interpreter);
     register_stack_words(interpreter);
     register_constant_words(interpreter);
+    register_simple_arithmetic_words(interpreter);
     register_bytecode_words(interpreter);
     register_word_words(interpreter);
     register_word_creation_words(interpreter);
@@ -66,4 +72,26 @@ pub fn register_base_words(interpreter: &mut dyn Interpreter) {
     register_byte_buffer_words(interpreter);
     register_hash_table_words(interpreter);
     register_math_logic_and_bit_words(interpreter);
+    
+    // Native sleep word: ms ( n -- )
+    use std::rc::Rc;
+    use crate::runtime::data_structures::dictionary::{WordRuntime, WordType, WordVisibility};
+    interpreter.add_word(
+        file!().to_string(),
+        line!() as usize,
+        0,
+        "ms".to_string(),
+        Rc::new(|interp| {
+            let ms = interp.pop_as_int()?;
+            if ms > 0 {
+                thread::sleep(Duration::from_millis(ms as u64));
+            }
+            Ok(())
+        }),
+        "Sleep for n milliseconds.".to_string(),
+        "n --".to_string(),
+        WordRuntime::Normal,
+        WordVisibility::Visible,
+        WordType::Native,
+    );
 }
