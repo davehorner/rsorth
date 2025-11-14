@@ -1,0 +1,54 @@
+version: '3'
+
+tasks:
+  build:
+    desc: Build the Rust Sorth interpreter
+    cmds:
+      - cargo build --release
+
+  run:
+    desc: Run the Sorth interpreter (optionally with a script)
+    cmds:
+      - |
+        if [ -n "$SCRIPT" ]; then 
+          cargo run --release -- "$SCRIPT"; 
+        else 
+          cargo run --release; 
+        fi
+    vars:
+      SCRIPT: ""
+
+  repl:
+    desc: Start the Sorth REPL
+    cmds:
+      - cargo run --release
+
+  test:
+    desc: Run all Sorth Forth test scripts
+    cmds:
+      - |
+        for f in tests/*.f; do 
+          echo "Running $f"; 
+          cargo run --release -- "$f" || exit 1; 
+        done
+
+  build-ffi:
+    desc: Build the C++ FFI test library (Windows example)
+    cmds:
+      - g++ -shared -o tests/TestLib.dll tests/test_ffi_lib.cpp
+    platforms: [windows]
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - cargo clean
+
+  format:
+    desc: Format Rust code
+    cmds:
+      - cargo fmt
+
+  lint:
+    desc: Lint Rust code
+    cmds:
+      - cargo clippy -- -D warnings

@@ -11,12 +11,7 @@ use crate::{ add_native_word,
 fn word_user_env_read(interpreter: &mut dyn Interpreter) -> error::Result<()>
 {
     let name = interpreter.pop_as_string()?;
-    let value =
-        match var(name)
-        {
-            Ok(text) => text,
-            Err(_)   => String::new()
-        };
+    let value: String = var(name).unwrap_or_default();
 
     interpreter.push(value.to_value());
     Ok(())

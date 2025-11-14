@@ -1,3 +1,8 @@
+impl Default for SourceLocation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 use core::str::Chars;
 use std::{ fmt::{ self,
@@ -58,16 +63,14 @@ impl SourceLocation
     }
 
     /// Create a new SourceLocation with the path to the source code.
-    pub fn new_from_path(path: &String) -> Self
-    {
-        SourceLocation { path: path.clone(), line: 1, column: 1 }
+    pub fn new_from_path(path: &str) -> Self {
+        SourceLocation { path: path.to_owned(), line: 1, column: 1 }
     }
 
     /// Create a new SourceLocation with all of the needed information.  This is useful in
     /// conjunction with the location_here! macro.
-    pub fn new_from_info(path: &String, line: usize, column: usize) -> Self
-    {
-        SourceLocation { path: path.clone(), line, column }
+    pub fn new_from_info(path: &str, line: usize, column: usize) -> Self {
+        SourceLocation { path: path.to_owned(), line, column }
     }
 
     /// The path to the source code or a meaningful description of the source code.
@@ -98,9 +101,9 @@ macro_rules! location_here
 {
     () =>
     {
-        crate::lang::source_buffer::SourceLocation::new_from_info(&file!().to_string(),
-                                                                  line!() as usize,
-                                                                  column!() as usize)
+        $crate::lang::source_buffer::SourceLocation::new_from_info(file!(),
+                                      line!() as usize,
+                                      column!() as usize)
     };
 }
 
@@ -136,10 +139,8 @@ impl<'a> SourceBuffer<'a>
     /// It is important to note that the source code is not copied.  The SourceBuffer will hold a
     /// reference to the source code.  The code will not be modified and it is expected that the
     /// source code will outlive the SourceBuffer.
-    pub fn new(path: &String, source: &'a String) -> Self
-    {
-        SourceBuffer
-        {
+    pub fn new(path: &str, source: &'a str) -> Self {
+        SourceBuffer {
             chars: source.chars(),
             location: SourceLocation::new_from_path(path),
             current: None
@@ -169,7 +170,7 @@ impl<'a> SourceBuffer<'a>
     }
 
     /// Get and consume the next character in the source code.
-    pub fn next(&mut self) -> Option<char>
+    pub fn next_char(&mut self) -> Option<char>
     {
         let next: Option<char>;
 

@@ -187,7 +187,7 @@ fn word_execute(interpreter: &mut dyn Interpreter) -> error::Result<()>
 fn word_is_defined(interpreter: &mut dyn Interpreter) -> error::Result<()>
 {
     let word = interpreter.pop_as_string()?;
-    let found = if let Some(_) = interpreter.find_word(&word) { true } else { false };
+    let found = interpreter.find_word(&word).is_some();
 
     interpreter.push(found.to_value());
     Ok(())
@@ -200,7 +200,7 @@ fn word_is_defined(interpreter: &mut dyn Interpreter) -> error::Result<()>
 fn word_is_defined_im(interpreter: &mut dyn Interpreter) -> error::Result<()>
 {
     let ( _, word ) = interpreter.next_token_word()?;
-    let found = if let Some(_) = interpreter.find_word(&word) { true } else { false };
+    let found = interpreter.find_word(&word).is_some();
 
     interpreter.push(found.to_value());
     Ok(())
@@ -213,7 +213,7 @@ fn word_is_defined_im(interpreter: &mut dyn Interpreter) -> error::Result<()>
 fn word_is_undefined_im(interpreter: &mut dyn Interpreter) -> error::Result<()>
 {
     let ( _, word ) = interpreter.next_token_word()?;
-    let not_found = if let Some(_) = interpreter.find_word(&word) { false } else { true };
+    let not_found = interpreter.find_word(&word).is_none();
 
     interpreter.push(not_found.to_value());
     Ok(())

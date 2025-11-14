@@ -1,4 +1,3 @@
-
 use std::{ cell::RefCell,
            collections::VecDeque,
            fmt::{ self, Display, Formatter },
@@ -136,7 +135,7 @@ impl ValueVec
 
 
     /// Make sure users of the ValueVec can iterate it's values.
-    pub fn iter(&self) -> std::collections::vec_deque::Iter<Value>
+    pub fn iter(&self) -> std::collections::vec_deque::Iter<'_, Value>
     {
         self.values.iter()
     }
@@ -146,6 +145,12 @@ impl ValueVec
     pub fn len(&self) -> usize
     {
         self.values.len()
+    }
+
+
+    /// Check if the ValueVec is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
 

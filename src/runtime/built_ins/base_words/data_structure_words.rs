@@ -64,13 +64,13 @@ fn word_data_definition(interpreter: &mut dyn Interpreter) -> error::Result<()>
         field_names.push(field.get_string_val().clone());
     }
 
-    let defaults = defaults.borrow().iter().map(|value| value.clone()).collect();
+    let defaults = defaults.borrow().iter().cloned().collect();
 
     let definition_ptr = DataObjectDefinition::new(interpreter,
                                                    name,
                                                    field_names,
                                                    defaults,
-                                                   is_hidden.clone());
+                                                   is_hidden);
 
     DataObjectDefinition::create_data_definition_words(interpreter,
                                                        location,

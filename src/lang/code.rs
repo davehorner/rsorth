@@ -242,7 +242,7 @@ impl Display for Instruction
         {
             match value
             {
-                Value::String(text) => Value::stringify(&text),
+                Value::String(text) => Value::stringify(text),
                 _ => format!("{}", value)
             }
         }
@@ -265,7 +265,7 @@ impl Display for Instruction
             Op::ReadVariable             => write!(f, "ReadVariable"),
             Op::WriteVariable            => write!(f, "WriteVariable"),
             Op::Execute(value)           => write!(f, "Execute           {}", value),
-            Op::PushConstantValue(value) => write!(f, "PushConstantValue {}", flt(&value)),
+            Op::PushConstantValue(value) => write!(f, "PushConstantValue {}", flt(value)),
             Op::MarkLoopExit(value)      => write!(f, "MarkLoopExit      {}", value),
             Op::UnmarkLoopExit           => write!(f, "UnmarkLoopExit"),
             Op::MarkCatch(value)         => write!(f, "MarkCatch         {}", value),
@@ -277,7 +277,7 @@ impl Display for Instruction
             Op::JumpIfNotZero(value)     => write!(f, "JumpIfNotZero     {}", value),
             Op::JumpLoopStart            => write!(f, "JumpLoopStart"),
             Op::JumpLoopExit             => write!(f, "JumpLoopExit"),
-            Op::JumpTarget(value)        => write!(f, "JumpTarget        {}", jt(&value)),
+            Op::JumpTarget(value)        => write!(f, "JumpTarget        {}", jt(value)),
         }
     }
 }

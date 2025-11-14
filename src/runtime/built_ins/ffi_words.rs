@@ -99,6 +99,12 @@ pub struct FfiInterface
 }
 
 
+impl Default for FfiInterface {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FfiInterface
 {
     /// Create a new default ffi interface with all the base types pre-registered.
@@ -551,9 +557,9 @@ impl FfiInterface
     fn alignment(size: usize, align: usize) -> usize
     {
         let aligned_size = (size + align - 1) & !(align - 1);
-        let padding = aligned_size - size;
+        
 
-        padding
+        aligned_size - size
     }
 
     /// Convert a Value to a native integer type.
@@ -735,21 +741,11 @@ impl FfiWord
         let mut return_buffer: BufferPtr = return_buffer.clone();
 
         // Create the array of raw ffi_type pointers for creating the ffi_cif.
-        let mut arg_types =
-            {
-                let mut arg_types = Vec::with_capacity(self.arg_types.len());
-
-                for type_info in self.arg_types.iter()
-                {
-                    arg_types.push(type_info.borrow().ffi_type);
-                }
-
-                arg_types
-            };
+        let mut arg_types = self.arg_types.iter().map(|type_info| type_info.borrow().ffi_type).collect::<Vec<_>>();
 
         // Create teh ffi cif and if successful call the function.
         let mut cif: ffi_cif = unsafe { std::mem::zeroed() };
-        let code_ptr = unsafe { Some(std::mem::transmute(*function)) };
+        let code_ptr = unsafe { Some(std::mem::transmute::<*mut std::ffi::c_void, unsafe extern "C" fn()>(*function)) };
 
         let status = unsafe
             {
@@ -805,13 +801,12 @@ impl FfiWord
 
         arg_values.resize(args_len, Value::None);
 
-        for index in 0..args_len
-        {
+        for index in 0..args_len {
             let index = args_len - index - 1;
             let value = interpreter.pop()?;
-            let ( size, extra ) = (self.arg_types[index].borrow().conversion_size)(interpreter,
-                                                                                   self.alignment,
-                                                                                   &value)?;
+            let (size, extra) = (self.arg_types[index].borrow().conversion_size)(interpreter,
+                                                                                self.alignment,
+                                                                                &value)?;
 
             base_size += size;
             extra_size += extra;
@@ -822,11 +817,10 @@ impl FfiWord
         buffer.borrow_mut().resize(base_size);
         extra_buffer.borrow_mut().resize(extra_size);
 
-        for index in 0..args_len
-        {
+        for (index, value) in arg_values.iter().enumerate() {
             arg_value_ptrs.push(buffer.borrow_mut().position_ptr_mut());
             (self.arg_types[index].borrow().conversion_from)(interpreter,
-                                                             &arg_values[index],
+                                                             value,
                                                              self.alignment,
                                                              buffer,
                                                              extra_buffer)?;
@@ -891,18 +885,23 @@ fn word_ffi_fn(interpreter: &mut dyn Interpreter) -> error::Result<()>
     }
 
     // Get the library from the ffi interface.  Then check to see if the function is in the library.
-    let lib: Rc<RefCell<Library>> = match interpreter.ffi().libs.get(&lib_name)
-        {
-            Some(lib) => lib.clone(),
-            None => return script_error(interpreter, format!("Library {} is not loaded.", lib_name))
-        };
 
-    if let Err(error) = unsafe { lib.borrow().get::<Symbol<*mut c_void>>(fn_name.as_bytes()) }
+    let lib: Rc<RefCell<Library>> = match interpreter.ffi().libs.get(&lib_name) {
+        Some(lib) => lib.clone(),
+        None => return script_error(interpreter, format!("Library {} is not loaded.", lib_name)),
+    };
+
     {
-        return script_error(interpreter, format!("Failed to get symbol {} from library {}: {}.",
-                                                 fn_name,
-                                                 lib_name,
-                                                 error));
+        let lib_borrow = lib.borrow();
+        if let Err(error) = unsafe { lib_borrow.get::<Symbol<*mut c_void>>(fn_name.as_bytes()) } {
+            return script_error(
+                interpreter,
+                format!(
+                    "Failed to get symbol {} from library {}: {}.",
+                    fn_name, lib_name, error
+                ),
+            );
+        }
     }
 
     // Get the type information for the parameter types.
@@ -947,12 +946,12 @@ fn word_ffi_fn(interpreter: &mut dyn Interpreter) -> error::Result<()>
         {
             let mut signature = String::new();
 
-            if arg_type_infos.len() > 0
+            if !arg_type_infos.is_empty()
             {
                 for arg_type in arg_type_infos.iter()
                 {
                     signature.push_str(&arg_type.borrow().name);
-                    signature.push_str(" ");
+                    signature.push(' ');
                 }
 
                 signature.push_str("-- ");

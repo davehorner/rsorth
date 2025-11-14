@@ -185,8 +185,8 @@ impl DataObjectDefinition
 
         // Register the structure creation word.
         interpreter.add_word(path.clone(),
-                             line.clone(),
-                             column.clone(),
+                            line,
+                            column,
                              format!("{}.new", struct_name),
                              Rc::new(move |interpreter: &mut dyn Interpreter| -> error::Result<()>
                              {
@@ -275,19 +275,19 @@ impl DataObjectDefinition
 
             // Register all of these structure field access words.
             interpreter.add_word(path.clone(),
-                                 line.clone(),
-                                 column.clone(),
+                                line,
+                                column,
                                  format!("{}.{}", struct_name, field_name),
                                  field_index_accessor,
-                                 format!(""),
+                                String::new(),
                                  format!(" -- {}-index", field_name),
                                  WordRuntime::Normal,
                                  visibility.clone(),
                                  WordType::Native);
 
             interpreter.add_word(path.clone(),
-                                 line.clone(),
-                                 column.clone(),
+                                line,
+                                column,
                                  format!("{}.{}!", struct_name, field_name),
                                  field_writer,
                                  format!("Write to the structure {} field {}.",
@@ -299,8 +299,8 @@ impl DataObjectDefinition
                                  WordType::Native);
 
             interpreter.add_word(path.clone(),
-                                 line.clone(),
-                                 column.clone(),
+                                line,
+                                column,
                                  format!("{}.{}@", struct_name, field_name),
                                  field_reader,
                                  format!("Read from the structure {} field {}.",
@@ -312,8 +312,8 @@ impl DataObjectDefinition
                                  WordType::Native);
 
             interpreter.add_word(path.clone(),
-                                 line.clone(),
-                                 column.clone(),
+                                line,
+                                column,
                                  format!("{}.{}!!", struct_name, field_name),
                                  var_field_writer,
                                  format!("Write to the structure variable {} field {}.",
@@ -325,8 +325,8 @@ impl DataObjectDefinition
                                  WordType::Native);
 
             interpreter.add_word(path.clone(),
-                                 line.clone(),
-                                 column.clone(),
+                                line,
+                                column,
                                  format!("{}.{}@@", struct_name, field_name),
                                  var_field_reader,
                                  format!("Read from the structure variable {} field {}.",
@@ -363,7 +363,7 @@ impl PartialEq for DataObject
 {
     fn eq(&self, other: &DataObject) -> bool
     {
-        if !(self.definition_ptr.borrow().name == other.definition_ptr.borrow().name)
+        if self.definition_ptr.borrow().name != other.definition_ptr.borrow().name
         {
             return false;
         }
@@ -445,14 +445,14 @@ impl Display for DataObject
 {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result
     {
-        write!(f, "# {}\n", self.definition_ptr.borrow().name)?;
+        writeln!(f, "# {}", self.definition_ptr.borrow().name)?;
 
         value_format_indent_inc();
 
         for index in 0..self.fields.len()
         {
-            write!(f,
-                   "{:width$}{} -> {} {}\n",
+            writeln!(f,
+                   "{:width$}{} -> {} {}",
                    "",
                    self.definition_ptr.borrow().field_names[index],
                    if self.fields[index].is_string()
@@ -484,10 +484,8 @@ impl DataObject
 
        fields.resize(definition.defaults.len(), Value::default());
 
-       for index in 0..fields.len()
-       {
-           fields[index] = definition.defaults[index].deep_clone();
-
+       for (index, default) in definition.defaults.iter().enumerate() {
+           fields[index] = default.deep_clone();
        }
 
        let data_object = DataObject

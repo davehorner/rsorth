@@ -66,12 +66,9 @@ fn word_hash_table_exists(interpreter: &mut dyn Interpreter) -> error::Result<()
     let hash_table = interpreter.pop_as_hash_map()?;
     let key = interpreter.pop()?;
 
-    if let Some(_) = hash_table.borrow().get(&key)
-    {
+    if hash_table.borrow().get(&key).is_some() {
         interpreter.push(true.to_value());
-    }
-    else
-    {
+    } else {
         interpreter.push(false.to_value());
     }
 

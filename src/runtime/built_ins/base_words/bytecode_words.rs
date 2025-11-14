@@ -250,9 +250,7 @@ fn word_code_compile_until_words(interpreter: &mut dyn Interpreter) -> error::Re
 
     // Build up the list of words to search for.
     let word_count = interpreter.pop_as_usize()?;
-    let mut words = Vec::new();
-
-    words.reserve(word_count);
+    let mut words = Vec::with_capacity(word_count);
 
     for _ in 0..word_count
     {
@@ -302,7 +300,7 @@ fn word_code_compile_until_words(interpreter: &mut dyn Interpreter) -> error::Re
                     }
                 }
 
-                message.push_str(".");
+                message.push('.');
             }
 
             script_error(interpreter, message)?;
@@ -335,7 +333,7 @@ fn word_code_insert_at_front(interpreter: &mut dyn Interpreter) -> error::Result
 fn word_code_execute_source(interpreter: &mut dyn Interpreter) -> error::Result<()>
 {
     let source = interpreter.pop_as_string()?;
-    interpreter.process_source(&"<repl>".to_string(), &source)
+    interpreter.process_source("<repl>", &source)
 }
 
 

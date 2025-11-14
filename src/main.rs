@@ -2,7 +2,6 @@
 // The code makes use of some of the newer features of Rust.  These features are not yet stable and
 // require the nightly version of Rust to compile.  Because of this some of the code may not compile
 // in a future version of Rust.  The features used are:
-#![feature(let_chains)]
 #![feature(fn_traits)]
 #![feature(unboxed_closures)]
 
@@ -96,7 +95,7 @@ fn main() -> error::Result<()>
     register_ffi_words(&mut interpreter);
 
     // Find and process the standard library's main file.
-    interpreter.process_source_file(&"std.f".to_string())?;
+    interpreter.process_source_file("std.f")?;
 
     // Mark the context as a "known good" state.  This is used to allow the user to reset the
     // interpreter to a solid state.
@@ -131,7 +130,7 @@ fn main() -> error::Result<()>
     {
         // Else we start the REPL defined in the standard library.  If there isn't a REPL defined
         // then we just exit.
-        interpreter.execute_word_named(&location_here!(), &"repl".to_string())?;
+        interpreter.execute_word_named(&location_here!(), "repl")?;
     }
 
     // Looks like everything went well.

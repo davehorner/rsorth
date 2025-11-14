@@ -134,7 +134,7 @@ fn word_string_find(interpreter: &mut dyn Interpreter) -> error::Result<()>
     }
     else
     {
-        interpreter.push((-1 as i64).to_value());
+        interpreter.push((-1_i64).to_value());
     }
 
 
@@ -173,7 +173,7 @@ fn word_string_to_number(interpreter: &mut dyn Interpreter) -> error::Result<()>
 {
     let string = interpreter.pop_as_string()?;
 
-    if let Some(_) = string.find(".")
+    if string.contains(".")
     {
         let number = string.parse::<f64>();
 
@@ -308,7 +308,7 @@ pub fn register_string_words(interpreter: &mut dyn Interpreter)
         " -- string");
 
     add_native_word!(interpreter, "string.npos",
-        |interpreter| { interpreter.push((-1 as i64).to_value()); Ok(()) },
+        |interpreter| { interpreter.push((-1_i64).to_value()); Ok(()) },
          "Constant value that indicates a search has failed.",
          " -- npos");
  }

@@ -1,3 +1,11 @@
+impl<T> Default for ContextualList<T>
+where
+    T: Clone
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 use std::{ ops::{ Index, IndexMut },
            slice::{ Iter, IterMut } };
@@ -184,8 +192,7 @@ impl<T> ContextualList<T>
     }
 
     /// Get the length of the entire list, regardless of the current context.
-    pub fn len(&self) -> usize
-    {
+    pub fn len(&self) -> usize {
         if !self.list_stack.is_empty()
         {
             let top = self.top();
@@ -195,6 +202,10 @@ impl<T> ContextualList<T>
         {
             0
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Get an iterator for the entire list.
@@ -276,11 +287,9 @@ impl<'a, T> Iterator for ContextualListIterator<'a, T>
         loop
         {
             if let Some(ref mut inner) = self.inner_iter
+                && let Some(item) = inner.next()
             {
-                if let Some(item) = inner.next()
-                {
-                    return Some(item);
-                }
+                return Some(item);
             }
 
             match self.outer_iter.next()
@@ -323,11 +332,9 @@ impl<'a, T> Iterator for ContextualListIteratorMut<'a, T>
         loop
         {
             if let Some(ref mut inner) = self.inner_iter
+                && let Some(item) = inner.next()
             {
-                if let Some(item) = inner.next()
-                {
-                    return Some(item);
-                }
+                return Some(item);
             }
 
             match self.outer_iter.next()

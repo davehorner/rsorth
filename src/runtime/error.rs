@@ -63,7 +63,7 @@ impl Display for ScriptError
 
             for item in call_stack.iter().rev()
             {
-                write!(f, "  {}\n", item)?;
+                writeln!(f, "  {}", item)?;
             }
         }
 

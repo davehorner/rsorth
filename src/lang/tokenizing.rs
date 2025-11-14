@@ -1,3 +1,4 @@
+#![allow(clippy::while_let_loop)]
 
 use std::{ cmp::Ordering,
            fmt::{ self, Debug, Display, Formatter },
@@ -212,11 +213,7 @@ impl Token
     /// Check if the token is a number.
     pub fn is_number(&self) -> bool
     {
-        match self
-        {
-            Token::Number(_, _) => true,
-            _                   => false
-        }
+        matches!(self, Token::Number(_, _))
     }
 
     /// Get the number value of the token, or error if it isn't a number token.
@@ -232,12 +229,7 @@ impl Token
     /// Check if the token is either a word or a string literal.
     pub fn is_textual(&self) -> bool
     {
-        match self
-        {
-            Token::String(_, _) => true,
-            Token::Word(_, _)   => true,
-            _                   => false
-        }
+        matches!(self, Token::String(_, _) | Token::Word(_, _))
     }
 
     /// Get the text value of the token, be it a word or a string literal.  Error out if it is a
@@ -255,11 +247,7 @@ impl Token
     /// Check if the token is a string literal.
     pub fn is_string(&self) -> bool
     {
-        match self
-        {
-            Token::String(_, _) => true,
-            _                   => false
-        }
+        matches!(self, Token::String(_, _))
     }
 
     /// Get the string value of the token, or error if it is a number or word.
@@ -275,11 +263,7 @@ impl Token
     /// Check if the token is a word.
     pub fn is_word(&self) -> bool
     {
-        match self
-        {
-            Token::Word(_, _) => true,
-            _                 => false
-        }
+        matches!(self, Token::Word(_, _))
     }
 
     /// Get the word text or error if it is a string literal or a number token.
@@ -312,7 +296,7 @@ fn skip_whitespace(buffer: &mut SourceBuffer)
             break;
         }
 
-        let _ = buffer.next();
+        let _ = buffer.next_char();
     }
 }
 
@@ -320,11 +304,11 @@ fn skip_whitespace(buffer: &mut SourceBuffer)
 /// a numeric literal for a character.
 fn process_literal(location: &SourceLocation, buffer: &mut SourceBuffer) -> error::Result<char>
 {
-    let next = buffer.next().unwrap();
+    let next = buffer.next_char().unwrap();
 
     assert!(next == '\\');
 
-    match buffer.next()
+    match buffer.next_char()
     {
         // Perform a simple translation of the escape sequence.
         Some('n') => Ok('\n'),
@@ -337,9 +321,9 @@ fn process_literal(location: &SourceLocation, buffer: &mut SourceBuffer) -> erro
                 let mut number_str = String::new();
 
                 while    let Some(next) = buffer.peek_next()
-                      && next.is_digit(10)
+                      && next.is_ascii_digit()
                 {
-                    number_str.push(buffer.next().unwrap());
+                    number_str.push(buffer.next_char().unwrap());
                 }
 
                 if let Ok(number) = number_str.parse::<u8>()
@@ -380,11 +364,10 @@ fn process_multi_line_string(location: &SourceLocation,
               && is_whitespace(&next)
               && buffer.location().column() < target_column
         {
-            let _ = buffer.next();
+            let _ = buffer.next_char();
         }
 
-        if let None = buffer.peek_next()
-        {
+        if buffer.peek_next().is_none() {
             ScriptError::new_as_result(Some(location.clone()),
                                        "Unexpected end of file in string literal.".to_string(),
                                        None)?;
@@ -403,7 +386,7 @@ fn process_multi_line_string(location: &SourceLocation,
     }
 
     // We expect that the " has already be processed and that we need to consume the following *.
-    let next = buffer.next().unwrap();
+    let next = buffer.next_char().unwrap();
     assert!(next == '*');
 
     // Skip over any whitespace at the beginning of the string.  Using the location of the first
@@ -416,7 +399,7 @@ fn process_multi_line_string(location: &SourceLocation,
     let mut text = String::new();
 
     // Keep going until we either hit the end of the buffer or the closing *" pair.
-    while let Some(next) = buffer.next()
+    while let Some(next) = buffer.next_char()
     {
         match next
         {
@@ -428,7 +411,7 @@ fn process_multi_line_string(location: &SourceLocation,
                         // We're at the end of the string.
                         if quote == '"'
                         {
-                            let _ = buffer.next();
+                            let _ = buffer.next_char();
                             break;
                         }
                         else
@@ -459,7 +442,7 @@ fn process_multi_line_string(location: &SourceLocation,
                     // target column.
                     let start_line = buffer.location().line();
 
-                    skip_whitespace_until_column(&location, buffer, target_column)?;
+                    skip_whitespace_until_column(location, buffer, target_column)?;
 
                     // If we skipped any empty lines then we need to backfill the newlines.
                     let current_line = buffer.location().line();
@@ -487,7 +470,7 @@ fn process_multi_line_string(location: &SourceLocation,
 /// rules.
 fn process_string(buffer: &mut SourceBuffer) -> error::Result<( SourceLocation, String )>
 {
-    let next = buffer.next().unwrap();
+    let next = buffer.next_char().unwrap();
     let location = buffer.location().clone();
     let mut text = String::new();
 
@@ -503,26 +486,25 @@ fn process_string(buffer: &mut SourceBuffer) -> error::Result<( SourceLocation, 
     {
         // This is a single line literal keep going until we hit the end of the buffer or we find
         // the closing ".
-        while let Some(next) = buffer.peek_next() && next != '"'
-        {
-            match next
-            {
-                // These are not allowed in a single line literal.
-                '\n' => ScriptError::new_as_result(Some(location.clone()),
-                                               "Unexpected new line in string literal.".to_string(),
-                                               None)?,
-
-                // Process the escape sequence.
-                '\\' => text.push(process_literal(&location, buffer)?),
-
-                // Just add the character to the text.
-                _    => text.push(buffer.next().unwrap())
-
+        loop {
+            if let Some(next) = buffer.peek_next() {
+                if next == '"' {
+                    break;
+                }
+                match next {
+                    '\n' => ScriptError::new_as_result(Some(location.clone()),
+                        "Unexpected new line in string literal.".to_string(),
+                        None)?,
+                    '\\' => text.push(process_literal(&location, buffer)?),
+                    _ => text.push(buffer.next_char().unwrap()),
+                }
+            } else {
+                break;
             }
         }
 
         // Make sure we found the closing ", otherwise we hit the end of the buffer.
-        let result = buffer.next();
+        let result = buffer.next_char();
 
         if result.is_none()
         {
@@ -545,17 +527,23 @@ fn process_until_whitespace(buffer: &mut SourceBuffer) -> ( SourceLocation, Stri
     let location = buffer.location().clone();
     let mut text = String::new();
 
-    while let Some(next) = buffer.peek_next() && !is_whitespace(&next)
-    {
-        let next = buffer.next().unwrap();
-        text.push(next);
+    loop {
+        if let Some(next) = buffer.peek_next() {
+            if is_whitespace(&next) {
+                break;
+            }
+            let next = buffer.next_char().unwrap();
+            text.push(next);
+        } else {
+            break;
+        }
     }
 
     ( location, text )
 }
 
 /// Does it look like we're dealing with a numeric literal?
-fn is_number(text: &String) -> bool
+fn is_number(text: &str) -> bool
 {
     if text.is_empty()
     {
@@ -568,7 +556,7 @@ fn is_number(text: &String) -> bool
         return true;
     }
 
-    text.chars().all(|c|    c.is_digit(16)
+    text.chars().all(|c|    c.is_ascii_hexdigit()
                          || c == '.'
                          || c == '-'
                          || c == 'e'
@@ -580,60 +568,43 @@ fn is_number(text: &String) -> bool
 /// Attempt to convert the text into a numeric literal.  This can be either an integer or floating
 /// point number.  We also support hexadecimal and binary literals, and using _ as a separator for
 /// readability.
-fn to_numeric(text: &String) -> Option<NumberType>
+fn to_numeric(text: &str) -> Option<NumberType>
 {
     // If the attempt at parsing the number fails then we return None.
     fn check_numeric_error<T, E>(result: &Result<T, E>) -> Option<()>
         where
             E: Display
     {
-        if let Err(_) = result
-        {
+        if result.is_err() {
             return None;
         }
-
         Some(())
     }
 
     // Check for the number literal type and process accordingly.
-    let result =
-        if text.starts_with("0x")
-        {
-            let result = i64::from_str_radix(&text[2..].replace("_", ""), 16);
-
-            check_numeric_error(&result)?;
-            Some(NumberType::Int(result.ok()?))
-        }
-        else if text.starts_with("0b")
-        {
-            let result = i64::from_str_radix(&text[2..].replace("_", ""), 2);
-
-            check_numeric_error(&result)?;
-            Some(NumberType::Int(result.ok()?))
-        }
-        else if text.contains('.')
-        {
-            let result = text.replace("_", "").parse();
-
-            check_numeric_error(&result)?;
-            Some(NumberType::Float(result.ok()?))
-        }
-        else
-        {
-            let result = text.replace("_", "").parse();
-
-            check_numeric_error(&result)?;
-            Some(NumberType::Int(result.ok()?))
-        };
-
-    // We either have a number or nothing at this point.
-    result
+    if let Some(stripped) = text.strip_prefix("0x") {
+        let result = i64::from_str_radix(&stripped.replace("_", ""), 16);
+        check_numeric_error(&result)?;
+        Some(NumberType::Int(result.ok()?))
+    } else if let Some(stripped) = text.strip_prefix("0b") {
+        let result = i64::from_str_radix(&stripped.replace("_", ""), 2);
+        check_numeric_error(&result)?;
+        Some(NumberType::Int(result.ok()?))
+    } else if text.contains('.') {
+        let result = text.replace("_", "").parse();
+        check_numeric_error(&result)?;
+        Some(NumberType::Float(result.ok()?))
+    } else {
+        let result = text.replace("_", "").parse();
+        check_numeric_error(&result)?;
+        Some(NumberType::Int(result.ok()?))
+    }
 }
 
 
 
 /// Tokenize the source code from a string.
-pub fn tokenize_from_source(path: &String, source: &String) -> error::Result<TokenList>
+pub fn tokenize_from_source(path: &str, source: &str) -> error::Result<TokenList>
 {
     let mut buffer = SourceBuffer::new(path, source);
     let mut token_list = TokenList::new();
@@ -699,7 +670,7 @@ pub fn tokenize_from_source(path: &String, source: &String) -> error::Result<Tok
 }
 
 /// Load the code from a file and then tokenize it.
-pub fn tokenize_from_file(path: &String) -> error::Result<TokenList>
+pub fn tokenize_from_file(path: &str) -> error::Result<TokenList>
 {
     // Just read the whole file into a string.
     let result = read_to_string(path);

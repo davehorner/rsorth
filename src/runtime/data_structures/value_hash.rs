@@ -1,4 +1,3 @@
-
 use std::{ collections::HashMap,
            cell::RefCell,
            cmp::Ordering,
@@ -131,14 +130,14 @@ impl Display for ValueHash
 {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result
     {
-        write!(f, "{{\n")?;
+        writeln!(f, "{{")?;
 
         value_format_indent_inc();
 
         for ( index, ( key, value ) ) in self.values.iter().enumerate()
         {
-            write!(f,
-                   "{:width$}{} -> {} {}\n",
+            writeln!(f,
+                   "{:width$}{} -> {} {}",
                    "",
                    if key.is_string()
                    {
@@ -183,9 +182,12 @@ impl ValueHash
 
 
     /// Get the size of the hash table.
-    pub fn len(&self) -> usize
-    {
+    pub fn len(&self) -> usize {
         self.values.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
 
@@ -216,7 +218,7 @@ impl ValueHash
 
 
     /// Allow user code to iterate over the hash table.
-    pub fn iter(&self) -> std::collections::hash_map::Iter<Value, Value>
+    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, Value, Value>
     {
         self.values.iter()
     }

@@ -36,6 +36,12 @@ pub trait Buffer
     /// Get the length of the buffer.
     fn len(&self) -> usize;
 
+    /// Returns true if the buffer is empty.
+    #[allow(dead_code)]
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
 
     /// Get the current cursor position in the buffer.
     fn position(&self) -> usize;
@@ -92,7 +98,7 @@ pub trait Buffer
     /// truncated.  If the string is smaller than the given size, it will be padded with zeros.
     ///
     /// If the write would exceed the bounds of the buffer the operation will panic.
-    fn write_string(&mut self, max_size: usize, value: &String);
+    fn write_string(&mut self, max_size: usize, value: &str);
 
     /// Read a string from the buffer.  The string will be read up to the given size.  If the string
     /// is smaller than the given size it will be terminated with a zero byte.
@@ -157,7 +163,7 @@ impl Display for dyn Buffer
 
                 if    byte.is_ascii_alphanumeric()
                    || byte.is_ascii_punctuation()
-                   || byte == ' ' as u8
+                   || byte == b' '
                 {
                     write!(f, "{}", byte as char)?;
                 }
@@ -397,7 +403,7 @@ impl Buffer for ByteBuffer
         }
     }
 
-    fn write_string(&mut self, max_size: usize, value: &String)
+    fn write_string(&mut self, max_size: usize, value: &str)
     {
         let bytes = value.as_bytes();
         let write_bytes = bytes.len().min(max_size);
@@ -462,9 +468,7 @@ impl ByteBuffer
     /// Create a new byte buffer of the given size.
     pub fn new(new_len: usize) -> ByteBuffer
     {
-        let mut buffer = Vec::new();
-
-        buffer.resize(new_len, 0);
+        let buffer = vec![0; new_len];
 
         ByteBuffer
             {
@@ -488,6 +492,7 @@ impl ByteBuffer
 
 /// A concrete implementation of the Buffer trait.  This buffer is a sub-buffer of another buffer
 /// and is meant to be used to read and write data from a specific range of the parent buffer.
+#[allow(dead_code)]
 pub struct SubBuffer
 {
     /// The real backing store for this sub-buffer.
@@ -646,7 +651,7 @@ impl Buffer for SubBuffer
         value
     }
 
-    fn write_string(&mut self, max_size: usize, value: &String)
+    fn write_string(&mut self, max_size: usize, value: &str)
     {
         {
             let mut parent = self.parent.borrow_mut();

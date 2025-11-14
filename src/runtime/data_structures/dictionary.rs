@@ -1,3 +1,8 @@
+impl Default for Dictionary {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 use std::{ collections::HashMap,
            fmt::{ self, Display, Formatter },
@@ -243,17 +248,13 @@ impl Display for Dictionary
                                          word.handler_index,
                                          width = max_size);
 
-                string_result = string_result +
-                    {
-                        if let WordRuntime::Immediate = word.runtime
-                        {
-                            "  immediate"
-                        }
-                        else
-                        {
-                            "           "
-                        }
-                    };
+                string_result += {
+                    if let WordRuntime::Immediate = word.runtime {
+                        "  immediate"
+                    } else {
+                        "           "
+                    }
+                };
 
                 string_result = string_result + &format!("  --  {}\n", word.description);
             }
@@ -311,16 +312,12 @@ impl Dictionary
 
     /// Try to get a word from the dictionary.  This will search all contexts within the dictionary
     /// returning only the newest version of the word if found.
-    pub fn try_get(&self, name: &String) -> Option<&WordInfo>
-    {
-        for sub_dictionary in self.stack.iter().rev()
-        {
-            if let Some(found) = sub_dictionary.get(name)
-            {
+    pub fn try_get(&self, name: &str) -> Option<&WordInfo> {
+        for sub_dictionary in self.stack.iter().rev() {
+            if let Some(found) = sub_dictionary.get(name) {
                 return Some(found);
             }
         }
-
         None
     }
 

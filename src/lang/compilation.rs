@@ -1,3 +1,9 @@
+#![allow(clippy::match_like_matches_macro)]
+impl Default for Construction {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 use std::collections::HashMap;
 use crate::{ lang::{ code::{ ByteCode,
@@ -167,7 +173,7 @@ impl Construction
                 // the instruction list.
                 let jump_op = &self.code[jump_index as usize].op;
 
-                self.code[jump_index as usize].op = update_jump_op(&jump_op, relative);
+                self.code[jump_index as usize].op = update_jump_op(jump_op, relative);
             }
         }
     }
@@ -259,8 +265,7 @@ impl CodeConstructor
     /// Pop the top code block off of the block stack, if there is one to pop.
     pub fn construction_pop(&mut self) -> error::Result<Construction>
     {
-        if self.constructions.len() == 0
-        {
+        if self.constructions.is_empty() {
             ScriptError::new_as_result(None,
                                        "No construction to pop.".to_string(),
                                        None)?;
@@ -451,5 +456,5 @@ pub fn process_source_from_tokens(tokens: TokenList,
         };
 
     // Execute the script's top level code, if there is any.
-    interpreter.execute_code(&"<toplevel>".to_string(), &code)
+    interpreter.execute_code("<toplevel>", &code)
 }

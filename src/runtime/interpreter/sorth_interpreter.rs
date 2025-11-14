@@ -1,4 +1,3 @@
-
 use std::{ fs::{ metadata, canonicalize },
            path::{ Path,
                    PathBuf },
@@ -109,45 +108,20 @@ pub struct SorthInterpreter
 
 impl Interpreter for SorthInterpreter
 {
-    fn add_search_path(&mut self, path: &String) -> error::Result<()>
-    {
-        // Make sure the path exists.
-        if let Err(err) = metadata(path)
-        {
+    fn add_search_path(&mut self, path: &str) -> error::Result<()> {
+        if let Err(err) = metadata(path) {
             script_error(self, format!("Could not append search path {}: {}.", path, err))?;
         }
-
-        self.search_paths.push(path.clone());
+        self.search_paths.push(path.to_string());
         Ok(())
     }
 
-    fn add_search_path_for_file(&mut self, file_path: &String) -> error::Result<()>
-    {
-        let canonical = canonicalize(file_path)?;
-        let path = Path::new(&canonical);
-
-        if let Some(directory) = path.parent()
-        {
-            if directory.exists()
-            {
-                if let Some(directory) = directory.to_str()
-                {
-                    self.add_search_path(&directory.to_string())
-                }
-                else
-                {
-                    script_error_str(self, "Path contains invalid characters.")
-                }
-            }
-            else
-            {
-                script_error(self, format!("Path {} does not exist.", directory.display()))
-            }
+    fn add_search_path_for_file(&mut self, file_path: &str) -> error::Result<()> {
+        if let Some(parent) = Path::new(file_path).parent() {
+            let parent_str = parent.to_string_lossy();
+            self.add_search_path(&parent_str)?;
         }
-        else
-        {
-            script_error(self, format!("Could not get parent directory for file {}.", file_path))
-        }
+        Ok(())
     }
 
     fn drop_search_path(&mut self) -> error::Result<()>
@@ -166,48 +140,26 @@ impl Interpreter for SorthInterpreter
         &self.search_paths
     }
 
-    fn find_file(&self, path: &String) -> error::Result<String>
-    {
-        // If the path is relative the the process's current directory or it's an absolute path we
-        // can just try to see if it exists.
-        if Path::new(path).exists()
-        {
-            // Make sure the path is canonicalized.
+    fn find_file(&self, path: &str) -> error::Result<String> {
+        if Path::new(path).exists() {
             let canonical = canonicalize(path)?;
-
-            if let Some(canonical) = canonical.to_str()
-            {
-                return Ok(canonical.to_string());
+            if let Some(canonical) = canonical.to_str() {
+                Ok(canonical.to_string())
+            } else {
+                script_error_str(self, "Path contains invalid characters.")
             }
-            else
-            {
-                return script_error_str(self, "Path contains invalid characters.");
-            }
-        }
-        else
-        {
-            // Otherwise we need to search the search paths for the file.
-            for directory in self.search_paths.iter().rev()
-            {
-                // Try to find the file in the current search path.
+        } else {
+            for directory in self.search_paths.iter().rev() {
                 let full_path = PathBuf::from(directory).join(path);
-
-                if full_path.exists()
-                {
-                    // Again make sure the path is canonicalized.
+                if full_path.exists() {
                     let canonical = canonicalize(full_path)?;
-
-                    if let Some(canonical) = canonical.to_str()
-                    {
-                        return Ok(canonical.to_string())
-                    }
-                    else
-                    {
-                        return script_error_str(self, "Path contains invalid characters.")?;
+                    if let Some(canonical) = canonical.to_str() {
+                        return Ok(canonical.to_string());
+                    } else {
+                        return script_error_str(self, "Path contains invalid characters.");
                     }
                 }
             }
-
             script_error(self, format!("File {} not found.", path))
         }
     }
@@ -290,7 +242,7 @@ impl InterpreterStack for SorthInterpreter
     {
         let item = self.stack.pop();
 
-        if let None = item
+        if item.is_none()
         {
             script_error_str(self, "Stack underflow.")?;
         }
@@ -426,7 +378,7 @@ impl InterpreterStack for SorthInterpreter
     fn pick(&mut self, index: usize) -> error::Result<Value>
     {
         let value = self.stack.remove(self.stack.len() - 1 - index);
-        return Ok(value);
+        Ok(value)
     }
 
     fn push_to(&mut self, index: usize) -> error::Result<()>
@@ -570,7 +522,7 @@ impl SorthInterpreter
                     {
                         Token::Word(location, word_name) =>
                             {
-                                self.execute_word_named(&location, word_name)
+                                self.execute_word_named(location, word_name)
                             },
 
                         _ =>
@@ -671,7 +623,7 @@ impl CodeManagement for SorthInterpreter
 
     fn next_token_number(&mut self) -> error::Result<NumberType>
     {
-        let number = self.next_token()?.number(self)?.clone();
+        let number = *self.next_token()?.number(self)?;
         Ok(number)
     }
 
@@ -720,27 +672,21 @@ impl CodeManagement for SorthInterpreter
         self.constructors.last_mut().unwrap()
     }
 
-    fn process_source_file(&mut self, path: &String) -> error::Result<()>
-    {
+    fn process_source_file(&mut self, path: &str) -> error::Result<()> {
         let full_path = self.find_file(path)?;
         let tokens = tokenize_from_file(&full_path)?;
-
         self.add_search_path_for_file(&full_path)?;
-
         let result = process_source_from_tokens(tokens, self);
-
         self.drop_search_path()?;
-
         result
     }
 
-    fn process_source(&mut self, path: &String, source: &String) -> error::Result<()>
-    {
+    fn process_source(&mut self, path: &str, source: &str) -> error::Result<()> {
         let tokens = tokenize_from_source(path, source)?;
         process_source_from_tokens(tokens, self)
     }
 
-    fn execute_code(&mut self, name: &String, code: &ByteCode) -> error::Result<()>
+    fn execute_code(&mut self, name: &str, code: &ByteCode) -> error::Result<()> 
     {
         // Keep track of any contexts that get marked so that we can safely clean up if any releases
         // are missed.
@@ -786,7 +732,7 @@ impl CodeManagement for SorthInterpreter
             {
 
                 self.current_location = Some(location.clone());
-                self.call_stack_push(name.clone(), location.clone());
+                self.call_stack_push(name.to_string(), location.clone());
                 call_stack_pushed = true;
             }
 
@@ -974,7 +920,7 @@ impl CodeManagement for SorthInterpreter
             }
 
             // Move on to the next instruction.
-            pc = pc + 1;
+            pc += 1;
         }
 
         // Make sure that the contexts are balanced.  Return an error if they are not.
@@ -1026,8 +972,7 @@ impl WordManagement for SorthInterpreter
         self.data_definitions.insert(definition_ptr);
     }
 
-    fn find_word(&self, word: &String) -> Option<&WordInfo>
-    {
+    fn find_word(&self, word: &str) -> Option<&WordInfo> {
         self.dictionary.try_get(word)
     }
 
@@ -1082,16 +1027,11 @@ impl WordManagement for SorthInterpreter
 
     fn execute_word_named(&mut self,
                           location: &SourceLocation,
-                          word: &String) -> error::Result<()>
-    {
+                          word: &str) -> error::Result<()> {
         let word_info = self.dictionary.try_get(word);
-
-        if let Some(word_info) = word_info
-        {
+        if let Some(word_info) = word_info {
             self.execute_word(location, &word_info.clone())
-        }
-        else
-        {
+        } else {
             script_error(self, format!("Word {} not found.", word))
         }
     }
@@ -1180,5 +1120,12 @@ impl SorthInterpreter
 
                 constructors: CodeConstructorList::new()
             }
+    }
+}
+
+
+impl Default for SorthInterpreter {
+    fn default() -> Self {
+        Self::new()
     }
 }

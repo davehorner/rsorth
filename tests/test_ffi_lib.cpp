@@ -14,8 +14,10 @@
 #include <iostream>
 
 
+
 #ifdef IS_WINDOWS
     #include <windows.h>
+    #include <cstdint>
 
     #define DLL_EXPORT extern "C" __declspec(dllexport)
 #else

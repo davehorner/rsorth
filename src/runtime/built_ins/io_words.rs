@@ -1,13 +1,55 @@
 
+use std::io::{self, Read, Write};
+impl Read for RawIpcStream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            #[cfg(unix)]
+            RawIpcStream::Unix(s) => s.read(buf),
+            #[cfg(windows)]
+            RawIpcStream::NamedPipe(s) => s.read(buf),
+            RawIpcStream::Tcp(s) => s.read(buf),
+        }
+    }
+}
+
+impl Write for RawIpcStream {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            #[cfg(unix)]
+            RawIpcStream::Unix(s) => s.write(buf),
+            #[cfg(windows)]
+            RawIpcStream::NamedPipe(s) => s.write(buf),
+            RawIpcStream::Tcp(s) => s.write(buf),
+        }
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            #[cfg(unix)]
+            RawIpcStream::Unix(s) => s.flush(),
+            #[cfg(windows)]
+            RawIpcStream::NamedPipe(s) => s.flush(),
+            RawIpcStream::Tcp(s) => s.flush(),
+        }
+    }
+}
+
 use std::{ collections::HashMap,
-           fs::{ remove_file,
-                 File,
-                 OpenOptions },
-           io::{ BufRead, BufReader, BufWriter, Read, Write, Seek, SeekFrom },
-           os::unix::net::UnixStream,
-           path::Path,
-           sync::{ atomic::{ AtomicI64, Ordering },
-                   Mutex } };
+         fs::{ remove_file,
+             File,
+             OpenOptions },
+         io::{ BufRead, BufReader, BufWriter, Seek },
+         net::TcpStream,
+         path::Path,
+         sync::{ atomic::{ AtomicI64, Ordering },
+             Mutex } };
+
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+#[cfg(windows)]
+use named_pipe::PipeClient;
 use lazy_static::lazy_static;
 use crate::{ add_native_word,
              runtime::{ data_structures::value::ToValue,
@@ -18,10 +60,18 @@ use crate::{ add_native_word,
 
 
 
-enum FileObject
-{
+
+pub enum RawIpcStream {
+    #[cfg(unix)]
+    Unix(UnixStream),
+    #[cfg(windows)]
+    NamedPipe(PipeClient),
+    Tcp(TcpStream),
+}
+
+enum FileObject {
     File(File),
-    Stream(UnixStream)
+    Stream(RawIpcStream),
 }
 
 
@@ -44,8 +94,8 @@ fn add_file(fd: i64, file: File)
     FILE_TABLE.lock().unwrap().insert(fd, FileObject::File(file));
 }
 
-fn add_stream(fd: i64, stream: UnixStream)
-{
+
+fn add_stream(fd: i64, stream: RawIpcStream) {
     FILE_TABLE.lock().unwrap().insert(fd, FileObject::Stream(stream));
 }
 
@@ -61,7 +111,8 @@ fn get_file(interpreter: &mut dyn Interpreter, fd: i64) -> error::Result<FileObj
                 match file
                 {
                     FileObject::File(file)     => Ok(FileObject::File(file.try_clone()?)),
-                    FileObject::Stream(stream) => Ok(FileObject::Stream(stream.try_clone()?))
+                    // Cloning streams is not supported for all types; return an error for now
+                    FileObject::Stream(_) => Err(std::io::Error::other("Cloning streams is not supported").into())
                 }
             }
 
@@ -180,29 +231,46 @@ fn word_file_delete(interpreter: &mut dyn Interpreter) -> error::Result<()>
     Ok(())
 }
 
-fn word_socket_connect(interpreter: &mut dyn Interpreter) -> error::Result<()>
-{
+
+fn word_socket_connect(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let path = interpreter.pop_as_string()?;
 
-    match UnixStream::connect(&path)
+    #[cfg(unix)]
     {
-        Ok(stream) =>
-            {
+        // Try Unix domain socket first
+        match UnixStream::connect(&path) {
+            Ok(stream) => {
                 let fd = generate_fd();
-
-                add_stream(fd, stream);
+                add_stream(fd, RawIpcStream::Unix(stream));
                 interpreter.push(fd.to_value());
+                return Ok(());
             },
-
-        Err(error) =>
-            {
-                script_error(interpreter, format!("Failed to connect to socket {}: {}",
-                                                  path,
-                                                  error))?;
+            Err(_) => {
+                // Fallback to TCP
             }
+        }
     }
 
-    Ok(())
+    // Try TCP on all platforms
+    if let Ok(stream) = TcpStream::connect(&path) {
+        let fd = generate_fd();
+        add_stream(fd, RawIpcStream::Tcp(stream));
+        interpreter.push(fd.to_value());
+        return Ok(());
+    }
+
+    #[cfg(windows)]
+    {
+        // Try named pipe
+        if let Ok(pipe) = PipeClient::connect(&path) {
+            let fd = generate_fd();
+            add_stream(fd, RawIpcStream::NamedPipe(pipe));
+            interpreter.push(fd.to_value());
+            return Ok(());
+        }
+    }
+
+    script_error(interpreter, format!("Failed to connect to any supported socket/pipe: {}", path))?
 }
 
 fn word_file_size_read(interpreter: &mut dyn Interpreter) -> error::Result<()>
@@ -256,7 +324,7 @@ fn word_file_is_eof(interpreter: &mut dyn Interpreter) -> error::Result<()>
     {
         FileObject::File(mut file) =>
             {
-                let current_pos = file.seek(SeekFrom::Current(0))?;
+                let current_pos = file.stream_position()?;
                 let total_size = file.metadata()?.len();
 
                 interpreter.push((current_pos == total_size).to_value());
@@ -364,7 +432,7 @@ fn word_file_write(interpreter: &mut dyn Interpreter) -> error::Result<()>
     {
         let bytes = string.into_bytes();
 
-        match writer.write(bytes.as_slice())
+        match writer.write_all(bytes.as_slice())
         {
             // TODO: Handle partial writes.
             Ok(_) =>
@@ -440,7 +508,7 @@ fn word_file_line_write(interpreter: &mut dyn Interpreter) -> error::Result<()>
     {
         let bytes = (string + "\n").into_bytes();
 
-        match writer.write(bytes.as_slice())
+        match writer.write_all(bytes.as_slice())
         {
             // TODO: Handle partial writes.
             Ok(_) =>
@@ -567,4 +635,88 @@ pub fn register_io_words(interpreter: &mut dyn Interpreter)
         },
         "Constant for opening a file for both reading and writing.",
         " -- flag");
+}
+
+#[cfg(test)]
+mod tests {
+        #[cfg(unix)]
+        #[test]
+        fn test_raw_ipcstream_unix() {
+            use std::os::unix::net::{UnixListener, UnixStream};
+            use std::path::PathBuf;
+            use std::fs;
+            let socket_path = PathBuf::from("/tmp/test_raw_ipcstream.sock");
+            let _ = fs::remove_file(&socket_path); // Clean up before test
+            let listener = UnixListener::bind(&socket_path).expect("bind failed");
+            let path = socket_path.clone();
+            let handle = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().expect("accept failed");
+                let mut buf = [0u8; 4];
+                stream.read_exact(&mut buf).expect("read failed");
+                assert_eq!(&buf, b"ping");
+                stream.write_all(b"pong").expect("write failed");
+            });
+            let mut stream = RawIpcStream::Unix(UnixStream::connect(&path).expect("connect failed"));
+            stream.write_all(b"ping").expect("write failed");
+            let mut buf = [0u8; 4];
+            stream.read_exact(&mut buf).expect("read failed");
+            assert_eq!(&buf, b"pong");
+            handle.join().unwrap();
+            let _ = fs::remove_file(&socket_path); // Clean up after test
+        }
+
+        #[cfg(windows)]
+        #[test]
+        fn test_raw_ipcstream_namedpipe() {
+            use named_pipe::{PipeOptions, PipeClient};
+            use std::thread;
+            let pipe_name = r"\\.\pipe\test_raw_ipcstream";
+            let server = thread::spawn(move || {
+                let mut server = PipeOptions::new(pipe_name)
+                    .single()
+                    .expect("create pipe failed")
+                    .wait()
+                    .expect("wait failed");
+                let mut buf = [0u8; 4];
+                server.read_exact(&mut buf).expect("read failed");
+                assert_eq!(&buf, b"ping");
+                server.write_all(b"pong").expect("write failed");
+            });
+            // Give the server a moment to start
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let mut client = RawIpcStream::NamedPipe(PipeClient::connect(pipe_name).expect("connect failed"));
+            client.write_all(b"ping").expect("write failed");
+            let mut buf = [0u8; 4];
+            client.read_exact(&mut buf).expect("read failed");
+            assert_eq!(&buf, b"pong");
+            server.join().unwrap();
+        }
+    use super::RawIpcStream;
+    use std::net::{TcpListener, TcpStream};
+    use std::thread;
+    use std::io::{Read, Write};
+
+    #[test]
+    fn test_raw_ipcstream_tcp() {
+        // Start a TCP listener in a background thread
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind failed");
+        let addr = listener.local_addr().unwrap();
+
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept failed");
+            let mut buf = [0u8; 4];
+            stream.read_exact(&mut buf).expect("read failed");
+            assert_eq!(&buf, b"ping");
+            stream.write_all(b"pong").expect("write failed");
+        });
+
+        // Connect as client using RawIpcStream::Tcp
+        let mut stream = RawIpcStream::Tcp(TcpStream::connect(addr).expect("connect failed"));
+        stream.write_all(b"ping").expect("write failed");
+        let mut buf = [0u8; 4];
+        stream.read_exact(&mut buf).expect("read failed");
+        assert_eq!(&buf, b"pong");
+
+        handle.join().unwrap();
+    }
 }

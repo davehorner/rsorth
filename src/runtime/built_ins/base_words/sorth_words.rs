@@ -41,7 +41,7 @@ fn word_if_im(interpreter: &mut dyn Interpreter) -> error::Result<()>
 {
     fn is_one_of(found: &str, words: &[&str]) -> bool
     {
-        words.iter().any(|&word| found == word)
+        words.contains(&found)
     }
 
     fn skip_until(interpreter: &mut dyn Interpreter, words: &[&str]) -> error::Result<String>
@@ -49,7 +49,7 @@ fn word_if_im(interpreter: &mut dyn Interpreter) -> error::Result<()>
         let mut done = false;
         let mut matched = String::new();
 
-            while done == false
+            while !done
             {
                 match interpreter.next_token()
                 {
@@ -75,7 +75,7 @@ fn word_if_im(interpreter: &mut dyn Interpreter) -> error::Result<()>
         let mut done = false;
         let mut matched = String::new();
 
-        while done == false
+        while !done
         {
             match interpreter.next_token()
             {

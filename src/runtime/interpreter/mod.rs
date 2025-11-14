@@ -236,7 +236,7 @@ pub trait CodeManagement
     /// Compile a Forth script from a source file.  This will read the file, tokenize it and compile
     /// it into byte-code.  All immediate words defined within and without will be executed in order
     /// to help process the source code.
-    fn process_source_file(&mut self, path: &String) -> error::Result<()>;
+    fn process_source_file(&mut self, path: &str) -> error::Result<()>;
 
     /// Compile a Forth script from an in memory source string.  This will tokenize it and compile
     /// it into byte-code.  All immediate words defined within and without will be executed in order
@@ -245,11 +245,11 @@ pub trait CodeManagement
     /// The path parameter is used to represent the source code in things like call stacks and error
     /// reporting.  For example, the repl uses a path of "\<repl\>" to represent source code entered
     /// by the user.
-    fn process_source(&mut self, path: &String, source: &String) -> error::Result<()>;
+    fn process_source(&mut self, path: &str, source: &str) -> error::Result<()>;
 
 
     /// Execute a bytecode block and associate a name with that code for use in error reporting.
-    fn execute_code(&mut self, name: &String, code: &ByteCode) -> error::Result<()>;
+    fn execute_code(&mut self, name: &str, code: &ByteCode) -> error::Result<()>;
 }
 
 
@@ -326,7 +326,7 @@ macro_rules! add_native_word
         {
             // Import the necessary items for the macro to work.
             use std::rc::Rc;
-            use crate::runtime::data_structures::dictionary::{ WordRuntime,
+            use $crate::runtime::data_structures::dictionary::{ WordRuntime,
                                                                WordVisibility,
                                                                WordType };
 
@@ -368,7 +368,7 @@ macro_rules! add_native_immediate_word
         {
             // Import the necessary items for the macro to work.
             use std::rc::Rc;
-            use crate::runtime::data_structures::dictionary::{ WordRuntime,
+            use $crate::runtime::data_structures::dictionary::{ WordRuntime,
                                                                WordVisibility,
                                                                WordType };
 
@@ -400,6 +400,7 @@ pub trait WordManagement
 
     /// Add a new word to the interpreter's dictionary.  This can be a native word or a scripted
     /// word.
+    #[allow(clippy::too_many_arguments)]
     fn add_word(&mut self,
                 file: String,
                 line: usize,
@@ -418,7 +419,7 @@ pub trait WordManagement
 
 
     //// Find a word in the interpreter's dictionary by name.
-    fn find_word(&self, word: &String) -> Option<&WordInfo>;
+    fn find_word(&self, word: &str) -> Option<&WordInfo>;
 
     /// Get a word's execution information from it's handler index.
     fn word_handler_info(&self, index: usize) -> Option<&WordHandlerInfo>;
@@ -450,7 +451,7 @@ pub trait WordManagement
     /// it's result is returned.
     fn execute_word_named(&mut self,
                           location: &SourceLocation,
-                          word: &String) -> error::Result<()>;
+                          word: &str) -> error::Result<()>;
 
     /// Execute a word by it's handler index.  Supply a source location to represent where the word
     /// was executed from.  Use the macro `location_here!()` to get the current location in the Rust
@@ -481,8 +482,6 @@ pub trait WordManagement
 /*pub struct SubThreadInfo
 {
 }*/
-
-
 /// Interpreter thread management trait.
 ///
 /// Define the functionality for managing the threads in the Strange Forth interpreter.
@@ -516,11 +515,11 @@ pub trait Interpreter : ContextualData +
 {
     /// Add a new path to the search path list.  This path will be checked to make sure that it
     /// exists.
-    fn add_search_path(&mut self, path: &String) -> error::Result<()>;
+    fn add_search_path(&mut self, path: &str) -> error::Result<()>;
 
     /// Add the parent directory for a file to the search paths.  This way if a file includes other
     /// files within it's directory, they'll be found.
-    fn add_search_path_for_file(&mut self, file_path: &String) -> error::Result<()>;
+    fn add_search_path_for_file(&mut self, file_path: &str) -> error::Result<()>;
 
     /// Drop the last added path from the search path list.  It is in this way, the search path list
     /// acts like a stack.
@@ -532,7 +531,7 @@ pub trait Interpreter : ContextualData +
 
     /// Find a file in the current list of search paths.  If the file is found return the fully
     /// qualified path to the file.
-    fn find_file(&self, path: & String) -> error::Result<String>;
+    fn find_file(&self, path: &str) -> error::Result<String>;
 
 
     /// The current list of variables known to the interpreter.

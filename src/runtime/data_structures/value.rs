@@ -1,3 +1,5 @@
+#![allow(clippy::collapsible_match)]
+#![allow(clippy::single_char_add_str)]
 
 use std::{ cell::RefCell,
            fmt::{ self,
@@ -354,7 +356,7 @@ macro_rules! is_variant
         #[doc = concat!("Check if the value is the variant ", stringify!($variant), ".")]
         pub fn $name(&self) -> bool
         {
-            if let Value::$variant(ref _value) = self
+            if let &Value::$variant(ref _value) = self
             {
                 true
             }
@@ -380,7 +382,7 @@ impl Value
     /// Check if the value is the None variant.
     pub fn is_none(&self) -> bool
     {
-        if let Value::None = self { true } else { false }
+        matches!(self, Value::None)
     }
 
     /// Check if either of the two values are the None variant.
@@ -405,20 +407,7 @@ impl Value
     /// Is the value any kind of numeric variant type?
     pub fn is_numeric(&self) -> bool
     {
-        match self
-        {
-            Value::None                 => true,
-            Value::Int(_)               => true,
-            Value::Float(_)             => true,
-            Value::Bool(_)              => true,
-            Value::Token(token) =>
-                match token
-                {
-                    Token::Number(_, _) => true,
-                    _                   => false
-                }
-            _                           => false
-        }
+        matches!(self, Value::None | Value::Int(_) | Value::Float(_) | Value::Bool(_) | Value::Token(Token::Number(_, _)))
     }
 
 
@@ -439,22 +428,7 @@ impl Value
     // Does the Value represent a simply stringable type?
     pub fn is_stringable(&self) -> bool
     {
-        match self
-        {
-            Value::None                 => true,
-            Value::Int(_)               => true,
-            Value::Float(_)             => true,
-
-            Value::String(_)            => true,
-            Value::Token(token) =>
-                match token
-                {
-                    Token::String(_, _) => true,
-                    Token::Word(_, _)   => true,
-                    _                   => false
-                }
-            _                           => false
-        }
+        matches!(self, Value::None | Value::Int(_) | Value::Float(_) | Value::String(_) | Value::Token(Token::String(_, _)) | Value::Token(Token::Word(_, _)))
     }
 
 
@@ -555,21 +529,19 @@ impl Value
     /// double quotes.
     ///
     /// Mainly used for debug, stack, and structure printing.
-    pub fn stringify(text: &String) -> String
+    pub fn stringify(text: &str) -> String
     {
         let mut result = String::new();
 
         result.push('"');
 
-        for character in text.chars()
-        {
-            match character
-            {
-                '"'  => result.push_str("\\\""),
-                '\n' => result.push_str("\\n"),
-                '\r' => result.push_str("\\r"),
-                '\t' => result.push_str("\\t"),
-                '\\' => result.push_str("\\"),
+        for character in text.chars() {
+            match character {
+                '"'  => result.push_str("\""),
+                '\n' => result.push_str("\n"),
+                '\r' => result.push_str("\r"),
+                '\t' => result.push_str("\t"),
+                '\\' => result.push('\\'),
                 _    => result.push(character)
             }
         }
@@ -622,7 +594,7 @@ thread_local!
     ///
     /// This value is thread safe and can be used for pretty printing values in multiple independent
     /// threads.
-    static VALUE_FORMAT_INDENT: RefCell<usize> = RefCell::new(0);
+    static VALUE_FORMAT_INDENT: RefCell<usize> = const { RefCell::new(0) };
 }
 
 

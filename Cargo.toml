@@ -1,9 +1,12 @@
+[features]
+uses_iceoryx2 = ["iceoryx2", "iceoryx2-bb-log"]
 
 [package]
+
 name = "sorth"
 version = "0.1.17"
-edition = "2021"
-authors = [ "Chloë Strainge nullptr.0@gmail.com" ]
+edition = "2024"
+authors = [ "Chloë Strainge nullptr.0@gmail.com", "David Horner" ]
 
 
 [profile.release]
@@ -34,3 +37,12 @@ winapi = { version = "0.3.9", features = [
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.161"
+
+
+[dependencies.iceoryx2]
+version = "0.7.0"
+optional = true
+
+[dependencies.iceoryx2-bb-log]
+version = "0.7.0"
+optional = true
