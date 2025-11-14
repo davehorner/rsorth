@@ -1,23 +1,27 @@
-
-use std::sync::atomic::{ AtomicUsize,
-                         Ordering };
-use crate::{ add_native_word,
-             runtime::{ data_structures::value::ToValue,
-                        error::{ self,
-                                 script_error },
-                        interpreter::Interpreter } };
-
-
+use crate::{
+    add_native_word,
+    runtime::{
+        data_structures::value::ToValue,
+        error::{self, script_error},
+        interpreter::Interpreter,
+    },
+};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Convert a byte index to a logical character index.
-fn byte_to_char_index(interpreter: &mut dyn Interpreter,
-                      string: &str,
-                      byte_index: usize) -> error::Result<usize>
-{
-    if !string.is_char_boundary(byte_index)
-    {
-        script_error(interpreter, format!("Byte index {} is not a valid character boundary.",
-                                          byte_index))?
+fn byte_to_char_index(
+    interpreter: &mut dyn Interpreter,
+    string: &str,
+    byte_index: usize,
+) -> error::Result<usize> {
+    if !string.is_char_boundary(byte_index) {
+        script_error(
+            interpreter,
+            format!(
+                "Byte index {} is not a valid character boundary.",
+                byte_index
+            ),
+        )?
     }
 
     let character_index = string[..byte_index].chars().count();
@@ -25,34 +29,36 @@ fn byte_to_char_index(interpreter: &mut dyn Interpreter,
 }
 
 /// Convert a logical character index to a byte index.
-fn char_index_to_byte_index(interpreter: &mut dyn Interpreter,
-                            string: &str,
-                            char_index: usize) -> error::Result<usize>
-{
+fn char_index_to_byte_index(
+    interpreter: &mut dyn Interpreter,
+    string: &str,
+    char_index: usize,
+) -> error::Result<usize> {
     let total_chars = string.chars().count();
 
-    if char_index > total_chars
-    {
-        script_error(interpreter, format!("Character index {} is out of range for string {}.",
-                                          char_index,
-                                          string))?
+    if char_index > total_chars {
+        script_error(
+            interpreter,
+            format!(
+                "Character index {} is out of range for string {}.",
+                char_index, string
+            ),
+        )?
     }
 
-    let byte_index = string.char_indices()
-                           .nth(char_index)
-                           .map(|( i, _ )| i)
-                           .unwrap_or(string.len());
+    let byte_index = string
+        .char_indices()
+        .nth(char_index)
+        .map(|(i, _)| i)
+        .unwrap_or(string.len());
 
     Ok(byte_index)
 }
 
-
-
 /// Get the length of a string in logical characters.
 ///
 /// Signature: `string -- size`
-fn word_string_length(interpreter: &mut dyn Interpreter) -> error::Result<()>
-{
+fn word_string_length(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let string = interpreter.pop_as_string()?;
     let length = string.chars().count() as i64;
 
@@ -63,15 +69,12 @@ fn word_string_length(interpreter: &mut dyn Interpreter) -> error::Result<()>
 /// Insert a string into another string at a given index.
 ///
 /// Signature: `sub-string index string -- updated-string`
-fn word_string_insert(interpreter: &mut dyn Interpreter) -> error::Result<()>
-{
+fn word_string_insert(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let mut string = interpreter.pop_as_string()?;
     let mut index = interpreter.pop_as_int()?;
     let sub_string = interpreter.pop_as_string()?;
 
-    if    index > string.chars().count() as i64
-       || index < 0
-    {
+    if index > string.chars().count() as i64 || index < 0 {
         index = string.chars().count() as i64 - 1;
     }
 
@@ -84,8 +87,7 @@ fn word_string_insert(interpreter: &mut dyn Interpreter) -> error::Result<()>
 /// Remove a count of characters from a string starting at a given index.
 ///
 /// Signature: `count position string -- updated-string`
-fn word_string_remove(interpreter: &mut dyn Interpreter) -> error::Result<()>
-{
+fn word_string_remove(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let mut string = interpreter.pop_as_string()?;
     let position = interpreter.pop_as_int()?;
     let mut count = interpreter.pop_as_int()?;
@@ -93,17 +95,17 @@ fn word_string_remove(interpreter: &mut dyn Interpreter) -> error::Result<()>
     let char_indices: Vec<usize> = string.char_indices().map(|(i, _)| i).collect();
     let char_count = char_indices.len();
 
-    if    position >= char_count as i64
-       || position < 0
-    {
-        script_error(interpreter, format!("Position {} is out of range for string of length {}.",
-                                          position,
-                                          char_count))?;
+    if position >= char_count as i64 || position < 0 {
+        script_error(
+            interpreter,
+            format!(
+                "Position {} is out of range for string of length {}.",
+                position, char_count
+            ),
+        )?;
     }
 
-    if    count < 0
-       || ((position + count) >= char_count as i64)
-    {
+    if count < 0 || ((position + count) >= char_count as i64) {
         count = char_count as i64 - position - 1;
     }
 
@@ -120,23 +122,18 @@ fn word_string_remove(interpreter: &mut dyn Interpreter) -> error::Result<()>
 /// Find a sub-string within a string and return the index of the first character.
 ///
 /// Signature: `sub-string string -- index`
-fn word_string_find(interpreter: &mut dyn Interpreter) -> error::Result<()>
-{
+fn word_string_find(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let string = interpreter.pop_as_string()?;
     let search_string = interpreter.pop_as_string()?;
 
     let byte_index = string.find(&search_string);
 
-    if let Some(byte_index) = byte_index
-    {
+    if let Some(byte_index) = byte_index {
         let char_index = byte_to_char_index(interpreter, &string, byte_index)?;
         interpreter.push(char_index.to_value());
-    }
-    else
-    {
+    } else {
         interpreter.push((-1_i64).to_value());
     }
-
 
     Ok(())
 }
@@ -144,18 +141,19 @@ fn word_string_find(interpreter: &mut dyn Interpreter) -> error::Result<()>
 /// Read a character from a string at a given index.
 ///
 /// Signature: `index string -- character`
-fn word_string_index_read(interpreter: &mut dyn Interpreter) -> error::Result<()>
-{
+fn word_string_index_read(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let string = interpreter.pop_as_string()?;
     let char_index = interpreter.pop_as_int()?;
     let char_count = string.chars().count();
 
-    if    char_index < 0
-       || char_index as usize >= char_count
-    {
-        script_error(interpreter, format!("Character index {} is out of range for string {}.",
-                                          char_index,
-                                          char_count))?;
+    if char_index < 0 || char_index as usize >= char_count {
+        script_error(
+            interpreter,
+            format!(
+                "Character index {} is out of range for string {}.",
+                char_index, char_count
+            ),
+        )?;
     }
 
     let byte_index = char_index_to_byte_index(interpreter, &string, char_index as usize)?;
@@ -169,34 +167,28 @@ fn word_string_index_read(interpreter: &mut dyn Interpreter) -> error::Result<()
 /// Attempt to convert a string to a number.
 ///
 /// Signature: `string -- number`
-fn word_string_to_number(interpreter: &mut dyn Interpreter) -> error::Result<()>
-{
+fn word_string_to_number(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let string = interpreter.pop_as_string()?;
 
-    if string.contains(".")
-    {
+    if string.contains(".") {
         let number = string.parse::<f64>();
 
-        match number
-        {
-            Ok(value)  => interpreter.push(value.to_value()),
-            Err(error) => script_error(interpreter,
-                                       format!("Could not convert string {} to number: {}.",
-                                               string,
-                                               error))?
+        match number {
+            Ok(value) => interpreter.push(value.to_value()),
+            Err(error) => script_error(
+                interpreter,
+                format!("Could not convert string {} to number: {}.", string, error),
+            )?,
         }
-    }
-    else
-    {
+    } else {
         let number = string.parse::<i64>();
 
-        match number
-        {
-            Ok(value)  => interpreter.push(value.to_value()),
-            Err(error) => script_error(interpreter,
-                                       format!("Could not convert string {} to number: {}.",
-                                               string,
-                                               error))?
+        match number {
+            Ok(value) => interpreter.push(value.to_value()),
+            Err(error) => script_error(
+                interpreter,
+                format!("Could not convert string {} to number: {}.", string, error),
+            )?,
         }
     }
 
@@ -206,8 +198,7 @@ fn word_string_to_number(interpreter: &mut dyn Interpreter) -> error::Result<()>
 /// Convert a value to a string.
 ///
 /// Signature: `value -- string`
-fn word_to_string(interpreter: &mut dyn Interpreter) -> error::Result<()>
-{
+fn word_to_string(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let string = interpreter.pop()?.to_string();
 
     interpreter.push(string.to_value());
@@ -217,36 +208,24 @@ fn word_to_string(interpreter: &mut dyn Interpreter) -> error::Result<()>
 /// Convert a number to a hex string.
 ///
 /// Signature: `number -- hex-string`
-fn word_hex(interpreter: &mut dyn Interpreter) -> error::Result<()>
-{
+fn word_hex(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let value = interpreter.pop()?;
-    let number =
-        if value.is_float()
-        {
-            let f_value = value.as_float(interpreter)?;
-            f_value.to_bits() as i64
-        }
-        else if value.is_numeric()
-        {
-            value.get_int_val()
-        }
-        else if value.is_string()
-        {
-            let value = value.get_string_val();
+    let number = if value.is_float() {
+        let f_value = value.as_float(interpreter)?;
+        f_value.to_bits() as i64
+    } else if value.is_numeric() {
+        value.get_int_val()
+    } else if value.is_string() {
+        let value = value.get_string_val();
 
-            if value.len() == 1
-            {
-                value.chars().next().unwrap() as i64
-            }
-            else
-            {
-                0
-            }
+        if value.len() == 1 {
+            value.chars().next().unwrap() as i64
+        } else {
+            0
         }
-        else
-        {
-            return script_error(interpreter, format!("Value {} is not a number.", value));
-        };
+    } else {
+        return script_error(interpreter, format!("Value {} is not a number.", value));
+    };
 
     interpreter.push(format!("{:x}", number).to_value());
     Ok(())
@@ -255,8 +234,7 @@ fn word_hex(interpreter: &mut dyn Interpreter) -> error::Result<()>
 /// Generate a unique string and push it onto the data stack.
 ///
 /// Signature: ` -- string`
-fn word_unique_str(interpreter: &mut dyn Interpreter) -> error::Result<()>
-{
+fn word_unique_str(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     static INDEX: AtomicUsize = AtomicUsize::new(0);
 
     let index = INDEX.fetch_add(1, Ordering::SeqCst);
@@ -266,49 +244,88 @@ fn word_unique_str(interpreter: &mut dyn Interpreter) -> error::Result<()>
     Ok(())
 }
 
-
-
 /// Register the string manipulation words.
-pub fn register_string_words(interpreter: &mut dyn Interpreter)
-{
-    add_native_word!(interpreter, "string.size@", word_string_length,
+pub fn register_string_words(interpreter: &mut dyn Interpreter) {
+    add_native_word!(
+        interpreter,
+        "string.size@",
+        word_string_length,
         "Get the length of a given string.",
-        "string -- size");
+        "string -- size"
+    );
 
-    add_native_word!(interpreter, "string.[]!", word_string_insert,
+    add_native_word!(
+        interpreter,
+        "string.[]!",
+        word_string_insert,
         "Insert a string into another string.",
-        "string -- updated_string");
+        "string -- updated_string"
+    );
 
-    add_native_word!(interpreter, "string.remove", word_string_remove,
+    add_native_word!(
+        interpreter,
+        "string.remove",
+        word_string_remove,
         "Remove some characters from a string.",
-        "string -- updated_string");
+        "string -- updated_string"
+    );
 
-    add_native_word!(interpreter, "string.find", word_string_find,
+    add_native_word!(
+        interpreter,
+        "string.find",
+        word_string_find,
         "Find the first instance of a string within another. Index if found, npos if not.",
-        "search_string string -- result");
+        "search_string string -- result"
+    );
 
-    add_native_word!(interpreter, "string.[]@", word_string_index_read,
+    add_native_word!(
+        interpreter,
+        "string.[]@",
+        word_string_index_read,
         "Read a character from the given string.",
-        "index string -- character");
+        "index string -- character"
+    );
 
-    add_native_word!(interpreter, "string.to_number", word_string_to_number,
+    add_native_word!(
+        interpreter,
+        "string.to_number",
+        word_string_to_number,
         "Convert a string into a number.",
-        "string -- number");
+        "string -- number"
+    );
 
-    add_native_word!(interpreter, "to_string", word_to_string,
+    add_native_word!(
+        interpreter,
+        "to_string",
+        word_to_string,
         "Convert a value to a string.",
-        "value -- string");
+        "value -- string"
+    );
 
-    add_native_word!(interpreter, "hex", word_hex,
+    add_native_word!(
+        interpreter,
+        "hex",
+        word_hex,
         "Convert a number into a hex string.",
-        "number -- hex_string");
+        "number -- hex_string"
+    );
 
-    add_native_word!(interpreter, "unique_str", word_unique_str,
+    add_native_word!(
+        interpreter,
+        "unique_str",
+        word_unique_str,
         "Generate a unique string and push it onto the data stack.",
-        " -- string");
+        " -- string"
+    );
 
-    add_native_word!(interpreter, "string.npos",
-        |interpreter| { interpreter.push((-1_i64).to_value()); Ok(()) },
-         "Constant value that indicates a search has failed.",
-         " -- npos");
- }
+    add_native_word!(
+        interpreter,
+        "string.npos",
+        |interpreter| {
+            interpreter.push((-1_i64).to_value());
+            Ok(())
+        },
+        "Constant value that indicates a search has failed.",
+        " -- npos"
+    );
+}

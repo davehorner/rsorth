@@ -1,4 +1,3 @@
-
 /// All of the core data structures used by the Strange Forth interpreter.
 pub mod data_structures;
 

@@ -1,4 +1,3 @@
-
 /// Mostly words that are used to change or read the state of the interpreter.
 mod sorth_words;
 
@@ -38,28 +37,22 @@ mod hash_table_words;
 /// Words that work with math, logic, bit manipulation and Value equality.
 mod math_logic_and_bit_words;
 
-
-
-use crate::runtime::{ built_ins::base_words::{
-                                      sorth_words::register_sorth_words,
-                                      stack_words::register_stack_words,
-                                      constant_words::register_constant_words,
-                                      bytecode_words::register_bytecode_words,
-                                      word_words::register_word_words,
-                                      word_creation_words::register_word_creation_words,
-                                      value_type_words::register_value_type_words,
-                                      string_words::register_string_words,
-                                      data_structure_words::register_data_structure_words,
-                                      array_words::register_array_words,
-                                      byte_buffer_words::register_byte_buffer_words,
-                                      hash_table_words::register_hash_table_words,
-                                      math_logic_and_bit_words::register_math_logic_and_bit_words },
-                      interpreter::Interpreter};
-
+use crate::runtime::{
+    built_ins::base_words::{
+        array_words::register_array_words, byte_buffer_words::register_byte_buffer_words,
+        bytecode_words::register_bytecode_words, constant_words::register_constant_words,
+        data_structure_words::register_data_structure_words,
+        hash_table_words::register_hash_table_words,
+        math_logic_and_bit_words::register_math_logic_and_bit_words,
+        sorth_words::register_sorth_words, stack_words::register_stack_words,
+        string_words::register_string_words, value_type_words::register_value_type_words,
+        word_creation_words::register_word_creation_words, word_words::register_word_words,
+    },
+    interpreter::Interpreter,
+};
 
 /// Called to register all of the core words of the language.
-pub fn register_base_words(interpreter: &mut dyn Interpreter)
-{
+pub fn register_base_words(interpreter: &mut dyn Interpreter) {
     register_sorth_words(interpreter);
     register_stack_words(interpreter);
     register_constant_words(interpreter);

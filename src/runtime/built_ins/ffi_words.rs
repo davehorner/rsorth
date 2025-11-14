@@ -1,73 +1,62 @@
-use std::{ borrow::Cow,
-           cell::RefCell,
-           collections::HashMap,
-           ffi::CStr,
-           os::raw::{ c_char,
-                      c_void },
-           rc::Rc };
-use libffi::{ low::{ ffi_abi_FFI_DEFAULT_ABI,
-                     ffi_cif,
-                     ffi_type,
-                     types },
-              raw::{ ffi_call,
-                     ffi_prep_cif,
-                     ffi_status_FFI_OK } };
-use libloading::{ Library,
-                  Symbol };
-use crate::{ add_native_word,
-             runtime::{ data_structures::{ byte_buffer::{ BufferPtr,
-                                                          ByteBuffer },
-                                           dictionary::{ WordRuntime,
-                                                         WordType,
-                                                         WordVisibility },
-                                           value::{ ToValue,
-                                                    Value },
-                                           value_vec::ValueVec },
-                        error::{ self,
-                                 script_error,
-                                 script_error_str },
-                        interpreter::Interpreter } };
-
-
+use crate::{
+    add_native_word,
+    runtime::{
+        data_structures::{
+            byte_buffer::{BufferPtr, ByteBuffer},
+            dictionary::{WordRuntime, WordType, WordVisibility},
+            value::{ToValue, Value},
+            value_vec::ValueVec,
+        },
+        error::{self, script_error, script_error_str},
+        interpreter::Interpreter,
+    },
+};
+use libffi::{
+    low::{ffi_abi_FFI_DEFAULT_ABI, ffi_cif, ffi_type, types},
+    raw::{ffi_call, ffi_prep_cif, ffi_status_FFI_OK},
+};
+use libloading::{Library, Symbol};
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    collections::HashMap,
+    ffi::CStr,
+    os::raw::{c_char, c_void},
+    rc::Rc,
+};
 
 /// The calculated size of a type and any extra space needed for referenced data.
-type CalculatedSize = ( usize, usize );
+type CalculatedSize = (usize, usize);
 
 /// Conversion function from a Value to a native type.
-type ConversionFrom = Rc<dyn Fn(&mut dyn Interpreter,
-                                &Value,
-                                usize,
-                                &BufferPtr,
-                                &BufferPtr) -> error::Result<()> + Send + Sync>;
+type ConversionFrom = Rc<
+    dyn Fn(&mut dyn Interpreter, &Value, usize, &BufferPtr, &BufferPtr) -> error::Result<()>
+        + Send
+        + Sync,
+>;
 
 /// Conversion function from a native type to a Value.
-type ConversionTo = Rc<dyn Fn(&mut dyn Interpreter,
-                               usize,
-                               &BufferPtr) -> error::Result<Value> + Send + Sync>;
+type ConversionTo =
+    Rc<dyn Fn(&mut dyn Interpreter, usize, &BufferPtr) -> error::Result<Value> + Send + Sync>;
 
 /// Calculate the size of a type and any extra space needed for referenced data.  For example, a
 /// string type would take up the space for a pointer to the string data, and the string data itself
 /// plus it's null terminator lives in the extra buffer.
-type ConversionSize = Rc<dyn Fn(&mut dyn Interpreter,
-                                 usize,
-                                 &Value) -> error::Result<CalculatedSize> + Send + Sync>;
+type ConversionSize =
+    Rc<dyn Fn(&mut dyn Interpreter, usize, &Value) -> error::Result<CalculatedSize> + Send + Sync>;
 
 // Calculate the base size of a type without any extra space needed for referenced data.
 type BaseSize = Rc<dyn Fn(usize) -> usize + Send + Sync>;
 
-
-
 /// Structure that holds information about a type that can be used in the ffi interface, as well as
 /// conversion handler functions for that type.
 #[derive(Clone)]
-struct TypeInfo
-{
+struct TypeInfo {
     /// The libffi type for this type record.
     ffi_type: *mut ffi_type,
 
     /// The name of the type as registered with the ffi interface.
     name: String,
-
 
     /// The function that converts from a Value to a native type.  Can fail if the Value is not of
     /// the correct type.
@@ -85,19 +74,15 @@ struct TypeInfo
     /// The function that calculates just the size of the type without the extra space needed for
     /// referenced data.  This doesn't allow for variable sized type data.  Primarily used for
     /// calculating the size of data being returned from a foreign function.
-    base_size: BaseSize
+    base_size: BaseSize,
 }
-
-
 
 /// Structure that holds the ffi interface libraries and the types that can be used with those
 /// libraries.
-pub struct FfiInterface
-{
+pub struct FfiInterface {
     libs: HashMap<String, Rc<RefCell<Library>>>,
-    types: HashMap<String, Rc<RefCell<TypeInfo>>>
+    types: HashMap<String, Rc<RefCell<TypeInfo>>>,
 }
-
 
 impl Default for FfiInterface {
     fn default() -> Self {
@@ -105,393 +90,341 @@ impl Default for FfiInterface {
     }
 }
 
-impl FfiInterface
-{
+impl FfiInterface {
     /// Create a new default ffi interface with all the base types pre-registered.
-    pub fn new() -> FfiInterface
-    {
-        FfiInterface
-            {
-                libs: HashMap::new(),
-                types: FfiInterface::default_types()
-            }
+    pub fn new() -> FfiInterface {
+        FfiInterface {
+            libs: HashMap::new(),
+            types: FfiInterface::default_types(),
+        }
     }
 
     /// Reset the ffi interface to it's default state.
-    pub fn reset(&mut self)
-    {
+    pub fn reset(&mut self) {
         self.libs.clear();
         self.types = FfiInterface::default_types();
     }
 
     /// Create the default type information for the ffi interface.
-    fn default_types() -> HashMap<String, Rc<RefCell<TypeInfo>>>
-    {
+    fn default_types() -> HashMap<String, Rc<RefCell<TypeInfo>>> {
         HashMap::from_iter(vec![
             (
                 "ffi.void".to_string(),
-                Rc::new(RefCell::new(TypeInfo
-                {
+                Rc::new(RefCell::new(TypeInfo {
                     name: "ffi.void".to_string(),
                     ffi_type: &raw mut types::void,
-                    conversion_from: Rc::new(|_interpreter, _value, _align, _buffer, _extra|
-                    {
-                        Ok(())
-                    }),
-                    conversion_to: Rc::new(|_interpreter, _align, _buffer|
-                    {
-                        Ok(Value::None)
-                    }),
-                    conversion_size: Rc::new(|_interpreter, _align, _value|
-                    {
-                        Ok(( 0, 0 ))
-                    }),
-                    base_size: Rc::new(|_align|
-                    {
-                        0
-                    })
-                }))
+                    conversion_from: Rc::new(
+                        |_interpreter, _value, _align, _buffer, _extra| Ok(()),
+                    ),
+                    conversion_to: Rc::new(|_interpreter, _align, _buffer| Ok(Value::None)),
+                    conversion_size: Rc::new(|_interpreter, _align, _value| Ok((0, 0))),
+                    base_size: Rc::new(|_align| 0),
+                })),
             ),
             (
                 "ffi.bool".to_string(),
-                Rc::new(RefCell::new(TypeInfo
-                {
+                Rc::new(RefCell::new(TypeInfo {
                     name: "ffi.bool".to_string(),
                     ffi_type: &raw mut types::uint8,
-                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra|
-                    {
-                        FfiInterface::conversion_to_int(interpreter,
-                                                          value,
-                                                          align,
-                                                          size_of::<bool>(),
-                                                          buffer)
+                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra| {
+                        FfiInterface::conversion_to_int(
+                            interpreter,
+                            value,
+                            align,
+                            size_of::<bool>(),
+                            buffer,
+                        )
                     }),
-                    conversion_to: Rc::new(|_interpreter, align, buffer|
-                    {
+                    conversion_to: Rc::new(|_interpreter, align, buffer| {
                         FfiInterface::conversion_from_int(align, size_of::<bool>(), false, buffer)
                     }),
-                    conversion_size: Rc::new(|_interpreter, align, _value|
-                    {
+                    conversion_size: Rc::new(|_interpreter, align, _value| {
                         let padding = FfiInterface::alignment(size_of::<bool>(), align);
-                        Ok(( size_of::<bool>() + padding, 0 ))
+                        Ok((size_of::<bool>() + padding, 0))
                     }),
-                    base_size: Rc::new(|align|
-                    {
+                    base_size: Rc::new(|align| {
                         let padding = FfiInterface::alignment(size_of::<bool>(), align);
                         size_of::<bool>() + padding
-                    })
-                }))
+                    }),
+                })),
             ),
             (
                 "ffi.i8".to_string(),
-                Rc::new(RefCell::new(TypeInfo
-                {
+                Rc::new(RefCell::new(TypeInfo {
                     name: "ffi.i8".to_string(),
                     ffi_type: &raw mut types::sint8,
-                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra|
-                    {
-                        FfiInterface::conversion_to_int(interpreter,
-                                                          value,
-                                                          align,
-                                                          size_of::<i8>(),
-                                                          buffer)
+                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra| {
+                        FfiInterface::conversion_to_int(
+                            interpreter,
+                            value,
+                            align,
+                            size_of::<i8>(),
+                            buffer,
+                        )
                     }),
-                    conversion_to: Rc::new(|_interpreter, align, buffer|
-                    {
+                    conversion_to: Rc::new(|_interpreter, align, buffer| {
                         FfiInterface::conversion_from_int(align, size_of::<i8>(), true, buffer)
                     }),
-                    conversion_size: Rc::new(|_interpreter, align, _value|
-                    {
+                    conversion_size: Rc::new(|_interpreter, align, _value| {
                         let padding = FfiInterface::alignment(size_of::<i8>(), align);
-                        Ok(( size_of::<i8>() + padding, 0 ))
+                        Ok((size_of::<i8>() + padding, 0))
                     }),
-                    base_size: Rc::new(|align|
-                    {
+                    base_size: Rc::new(|align| {
                         let padding = FfiInterface::alignment(size_of::<i8>(), align);
                         size_of::<i8>() + padding
-                    })
-                }))
+                    }),
+                })),
             ),
             (
                 "ffi.u8".to_string(),
-                Rc::new(RefCell::new(TypeInfo
-                {
+                Rc::new(RefCell::new(TypeInfo {
                     name: "ffi.u8".to_string(),
                     ffi_type: &raw mut types::uint8,
-                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra|
-                    {
-                        FfiInterface::conversion_to_int(interpreter,
-                                                        value,
-                                                        align,
-                                                        size_of::<u8>(),
-                                                        buffer)
+                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra| {
+                        FfiInterface::conversion_to_int(
+                            interpreter,
+                            value,
+                            align,
+                            size_of::<u8>(),
+                            buffer,
+                        )
                     }),
-                    conversion_to: Rc::new(|_interpreter, align, buffer|
-                    {
+                    conversion_to: Rc::new(|_interpreter, align, buffer| {
                         FfiInterface::conversion_from_int(align, size_of::<u8>(), false, buffer)
                     }),
-                    conversion_size: Rc::new(|_interpreter, align, _value|
-                    {
+                    conversion_size: Rc::new(|_interpreter, align, _value| {
                         let padding = FfiInterface::alignment(size_of::<u8>(), align);
-                        Ok(( size_of::<u8>() + padding, 0 ))
+                        Ok((size_of::<u8>() + padding, 0))
                     }),
-                    base_size: Rc::new(|align|
-                    {
+                    base_size: Rc::new(|align| {
                         let padding = FfiInterface::alignment(size_of::<u8>(), align);
                         size_of::<u8>() + padding
-                    })
-                }))
+                    }),
+                })),
             ),
             (
                 "ffi.i16".to_string(),
-                Rc::new(RefCell::new(TypeInfo
-                {
+                Rc::new(RefCell::new(TypeInfo {
                     name: "ffi.i16".to_string(),
                     ffi_type: &raw mut types::sint16,
-                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra|
-                    {
-                        FfiInterface::conversion_to_int(interpreter,
-                                                        value,
-                                                        align,
-                                                        size_of::<i16>(),
-                                                        buffer)
+                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra| {
+                        FfiInterface::conversion_to_int(
+                            interpreter,
+                            value,
+                            align,
+                            size_of::<i16>(),
+                            buffer,
+                        )
                     }),
-                    conversion_to: Rc::new(|_interpreter, align, buffer|
-                    {
+                    conversion_to: Rc::new(|_interpreter, align, buffer| {
                         FfiInterface::conversion_from_int(align, size_of::<i16>(), true, buffer)
                     }),
-                    conversion_size: Rc::new(|_interpreter, align, _value|
-                    {
+                    conversion_size: Rc::new(|_interpreter, align, _value| {
                         let padding = FfiInterface::alignment(size_of::<i16>(), align);
-                        Ok(( size_of::<i16>() + padding, 0 ))
+                        Ok((size_of::<i16>() + padding, 0))
                     }),
-                    base_size: Rc::new(|align|
-                    {
+                    base_size: Rc::new(|align| {
                         let padding = FfiInterface::alignment(size_of::<i16>(), align);
                         size_of::<i16>() + padding
-                    })
-                }))
+                    }),
+                })),
             ),
             (
                 "ffi.u16".to_string(),
-                Rc::new(RefCell::new(TypeInfo
-                {
+                Rc::new(RefCell::new(TypeInfo {
                     name: "ffi.u16".to_string(),
                     ffi_type: &raw mut types::uint16,
-                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra|
-                    {
-                        FfiInterface::conversion_to_int(interpreter,
-                                                          value,
-                                                          align,
-                                                          size_of::<u16>(),
-                                                          buffer)
+                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra| {
+                        FfiInterface::conversion_to_int(
+                            interpreter,
+                            value,
+                            align,
+                            size_of::<u16>(),
+                            buffer,
+                        )
                     }),
-                    conversion_to: Rc::new(|_interpreter, align, buffer|
-                    {
+                    conversion_to: Rc::new(|_interpreter, align, buffer| {
                         FfiInterface::conversion_from_int(align, size_of::<u16>(), false, buffer)
                     }),
-                    conversion_size: Rc::new(|_interpreter, align, _value|
-                    {
+                    conversion_size: Rc::new(|_interpreter, align, _value| {
                         let padding = FfiInterface::alignment(size_of::<u16>(), align);
-                        Ok(( size_of::<u16>() + padding, 0 ))
+                        Ok((size_of::<u16>() + padding, 0))
                     }),
-                    base_size: Rc::new(|align|
-                    {
+                    base_size: Rc::new(|align| {
                         let padding = FfiInterface::alignment(size_of::<u16>(), align);
                         size_of::<u16>() + padding
-                    })
-                }))
+                    }),
+                })),
             ),
             (
                 "ffi.i32".to_string(),
-                Rc::new(RefCell::new(TypeInfo
-                {
+                Rc::new(RefCell::new(TypeInfo {
                     name: "ffi.i32".to_string(),
                     ffi_type: &raw mut types::sint32,
-                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra|
-                    {
-                        FfiInterface::conversion_to_int(interpreter,
-                                                        value,
-                                                        align,
-                                                        size_of::<i32>(),
-                                                        buffer)
+                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra| {
+                        FfiInterface::conversion_to_int(
+                            interpreter,
+                            value,
+                            align,
+                            size_of::<i32>(),
+                            buffer,
+                        )
                     }),
-                    conversion_to: Rc::new(|_interpreter, align, buffer|
-                    {
+                    conversion_to: Rc::new(|_interpreter, align, buffer| {
                         FfiInterface::conversion_from_int(align, size_of::<i32>(), true, buffer)
                     }),
-                    conversion_size: Rc::new(|_interpreter, align, _value|
-                    {
+                    conversion_size: Rc::new(|_interpreter, align, _value| {
                         let padding = FfiInterface::alignment(size_of::<i32>(), align);
-                        Ok(( size_of::<i32>() + padding, 0 ))
+                        Ok((size_of::<i32>() + padding, 0))
                     }),
-                    base_size: Rc::new(|align|
-                    {
+                    base_size: Rc::new(|align| {
                         let padding = FfiInterface::alignment(size_of::<i32>(), align);
                         size_of::<i32>() + padding
-                    })
-                }))
+                    }),
+                })),
             ),
             (
                 "ffi.u32".to_string(),
-                Rc::new(RefCell::new(TypeInfo
-                {
+                Rc::new(RefCell::new(TypeInfo {
                     name: "ffi.u32".to_string(),
                     ffi_type: &raw mut types::uint32,
-                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra|
-                    {
-                        FfiInterface::conversion_to_int(interpreter,
-                                                        value,
-                                                        align,
-                                                        size_of::<u32>(),
-                                                        buffer)
+                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra| {
+                        FfiInterface::conversion_to_int(
+                            interpreter,
+                            value,
+                            align,
+                            size_of::<u32>(),
+                            buffer,
+                        )
                     }),
-                    conversion_to: Rc::new(|_interpreter, align, buffer|
-                    {
+                    conversion_to: Rc::new(|_interpreter, align, buffer| {
                         FfiInterface::conversion_from_int(align, size_of::<u32>(), false, buffer)
                     }),
-                    conversion_size: Rc::new(|_interpreter, align, _value|
-                    {
+                    conversion_size: Rc::new(|_interpreter, align, _value| {
                         let padding = FfiInterface::alignment(size_of::<u32>(), align);
-                        Ok(( size_of::<u32>() + padding, 0 ))
+                        Ok((size_of::<u32>() + padding, 0))
                     }),
-                    base_size: Rc::new(|align|
-                    {
+                    base_size: Rc::new(|align| {
                         let padding = FfiInterface::alignment(size_of::<u32>(), align);
                         size_of::<u32>() + padding
-                    })
-                }))
+                    }),
+                })),
             ),
             (
                 "ffi.i64".to_string(),
-                Rc::new(RefCell::new(TypeInfo
-                {
+                Rc::new(RefCell::new(TypeInfo {
                     name: "ffi.i64".to_string(),
                     ffi_type: &raw mut types::sint64,
-                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra|
-                    {
-                        FfiInterface::conversion_to_int(interpreter,
-                                                        value,
-                                                        align,
-                                                        size_of::<i64>(),
-                                                        buffer)
+                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra| {
+                        FfiInterface::conversion_to_int(
+                            interpreter,
+                            value,
+                            align,
+                            size_of::<i64>(),
+                            buffer,
+                        )
                     }),
-                    conversion_to: Rc::new(|_interpreter, align, buffer|
-                    {
+                    conversion_to: Rc::new(|_interpreter, align, buffer| {
                         FfiInterface::conversion_from_int(align, size_of::<i64>(), true, buffer)
                     }),
-                    conversion_size: Rc::new(|_interpreter, align, _value|
-                    {
+                    conversion_size: Rc::new(|_interpreter, align, _value| {
                         let padding = FfiInterface::alignment(size_of::<i64>(), align);
-                        Ok(( size_of::<i64>() + padding, 0 ))
+                        Ok((size_of::<i64>() + padding, 0))
                     }),
-                    base_size: Rc::new(|align|
-                    {
+                    base_size: Rc::new(|align| {
                         let padding = FfiInterface::alignment(size_of::<i64>(), align);
                         size_of::<i64>() + padding
-                    })
-                }))
+                    }),
+                })),
             ),
             (
                 "ffi.u64".to_string(),
-                Rc::new(RefCell::new(TypeInfo
-                {
+                Rc::new(RefCell::new(TypeInfo {
                     name: "ffi.u64".to_string(),
                     ffi_type: &raw mut types::uint64,
-                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra|
-                    {
-                        FfiInterface::conversion_to_int(interpreter,
-                                                        value,
-                                                        align,
-                                                        size_of::<u64>(),
-                                                        buffer)
+                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra| {
+                        FfiInterface::conversion_to_int(
+                            interpreter,
+                            value,
+                            align,
+                            size_of::<u64>(),
+                            buffer,
+                        )
                     }),
-                    conversion_to: Rc::new(|_interpreter, align, buffer|
-                    {
+                    conversion_to: Rc::new(|_interpreter, align, buffer| {
                         FfiInterface::conversion_from_int(align, size_of::<u64>(), false, buffer)
                     }),
-                    conversion_size: Rc::new(|_interpreter, align, _value|
-                    {
+                    conversion_size: Rc::new(|_interpreter, align, _value| {
                         let padding = FfiInterface::alignment(size_of::<u64>(), align);
-                        Ok(( size_of::<u64>() + padding, 0 ))
+                        Ok((size_of::<u64>() + padding, 0))
                     }),
-                    base_size: Rc::new(|align|
-                    {
+                    base_size: Rc::new(|align| {
                         let padding = FfiInterface::alignment(size_of::<u64>(), align);
                         size_of::<u64>() + padding
-                    })
-                }))
+                    }),
+                })),
             ),
             (
                 "ffi.f32".to_string(),
-                Rc::new(RefCell::new(TypeInfo
-                {
+                Rc::new(RefCell::new(TypeInfo {
                     name: "ffi.f32".to_string(),
                     ffi_type: &raw mut types::float,
-                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra|
-                    {
-                        FfiInterface::conversion_to_float(interpreter,
-                                                          value,
-                                                          align,
-                                                          size_of::<f32>(),
-                                                          buffer)
+                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra| {
+                        FfiInterface::conversion_to_float(
+                            interpreter,
+                            value,
+                            align,
+                            size_of::<f32>(),
+                            buffer,
+                        )
                     }),
-                    conversion_to: Rc::new(|_interpreter, align, buffer|
-                    {
+                    conversion_to: Rc::new(|_interpreter, align, buffer| {
                         FfiInterface::conversion_from_float(align, size_of::<f32>(), buffer)
                     }),
-                    conversion_size: Rc::new(|_interpreter, align, _value|
-                    {
+                    conversion_size: Rc::new(|_interpreter, align, _value| {
                         let padding = FfiInterface::alignment(size_of::<f32>(), align);
-                        Ok(( size_of::<f32>() + padding, 0 ))
+                        Ok((size_of::<f32>() + padding, 0))
                     }),
-                    base_size: Rc::new(|align|
-                    {
+                    base_size: Rc::new(|align| {
                         let padding = FfiInterface::alignment(size_of::<f32>(), align);
                         size_of::<f32>() + padding
-                    })
-                }))
+                    }),
+                })),
             ),
             (
                 "ffi.f64".to_string(),
-                Rc::new(RefCell::new(TypeInfo
-                {
+                Rc::new(RefCell::new(TypeInfo {
                     name: "ffi.f64".to_string(),
                     ffi_type: &raw mut types::double,
-                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra|
-                    {
-                        FfiInterface::conversion_to_float(interpreter,
-                                                          value,
-                                                          align,
-                                                          size_of::<f64>(),
-                                                          buffer)
+                    conversion_from: Rc::new(|interpreter, value, align, buffer, _extra| {
+                        FfiInterface::conversion_to_float(
+                            interpreter,
+                            value,
+                            align,
+                            size_of::<f64>(),
+                            buffer,
+                        )
                     }),
-                    conversion_to: Rc::new(|_interpreter, align, buffer|
-                    {
+                    conversion_to: Rc::new(|_interpreter, align, buffer| {
                         FfiInterface::conversion_from_float(align, size_of::<f64>(), buffer)
                     }),
-                    conversion_size: Rc::new(|_interpreter, align, _value|
-                    {
+                    conversion_size: Rc::new(|_interpreter, align, _value| {
                         let padding = FfiInterface::alignment(size_of::<f64>(), align);
-                        Ok(( size_of::<f64>() + padding, 0 ))
+                        Ok((size_of::<f64>() + padding, 0))
                     }),
-                    base_size: Rc::new(|align|
-                    {
+                    base_size: Rc::new(|align| {
                         let padding = FfiInterface::alignment(size_of::<f64>(), align);
                         size_of::<f64>() + padding
-                    })
-                }))
+                    }),
+                })),
             ),
             (
                 "ffi.string".to_string(),
-                Rc::new(RefCell::new(TypeInfo
-                {
+                Rc::new(RefCell::new(TypeInfo {
                     name: "ffi.string".to_string(),
                     ffi_type: &raw mut types::pointer,
-                    conversion_from: Rc::new(|interpreter, value, align, buffer, extra|
-                    {
-                        if !value.is_string()
-                        {
+                    conversion_from: Rc::new(|interpreter, value, align, buffer, extra| {
+                        if !value.is_string() {
                             return script_error_str(interpreter, "Value is not a string.");
                         }
 
@@ -503,76 +436,78 @@ impl FfiInterface
                         let str_size = string.len();
                         let str_padding = FfiInterface::alignment(str_size, align);
 
-                        buffer.borrow_mut().write_int(ptr_size,
-                                                      extra.borrow_mut().position_ptr_mut() as i64);
+                        buffer
+                            .borrow_mut()
+                            .write_int(ptr_size, extra.borrow_mut().position_ptr_mut() as i64);
                         buffer.borrow_mut().increment_position(ptr_padding);
 
-                        extra.borrow_mut().write_string(str_size + str_padding, &string);
+                        extra
+                            .borrow_mut()
+                            .write_string(str_size + str_padding, &string);
 
                         Ok(())
                     }),
-                    conversion_to: Rc::new(|_interpreter, align, buffer|
-                    {
+                    conversion_to: Rc::new(|_interpreter, align, buffer| {
                         let padding = FfiInterface::alignment(size_of::<*const c_char>(), align);
-                        let raw_ptr = buffer.borrow_mut().read_int(size_of::<*const c_char>(),
-                                                                   false) as *const c_char;
+                        let raw_ptr = buffer
+                            .borrow_mut()
+                            .read_int(size_of::<*const c_char>(), false)
+                            as *const c_char;
 
                         buffer.borrow_mut().increment_position(padding);
 
-                        let string = match unsafe { CStr::from_ptr(raw_ptr).to_string_lossy() }
-                            {
-                                Cow::Borrowed(string) => string.to_string(),
-                                Cow::Owned(string) => string
-                            };
+                        let string = match unsafe { CStr::from_ptr(raw_ptr).to_string_lossy() } {
+                            Cow::Borrowed(string) => string.to_string(),
+                            Cow::Owned(string) => string,
+                        };
 
                         buffer.borrow_mut().increment_position(string.len() + 1);
 
                         Ok(string.to_value())
                     }),
-                    conversion_size: Rc::new(|interpreter, align, value|
-                    {
-                        if !value.is_string()
-                        {
+                    conversion_size: Rc::new(|interpreter, align, value| {
+                        if !value.is_string() {
                             return script_error_str(interpreter, "Value is not a string.");
                         }
 
-                        let ptr_padding = FfiInterface::alignment(size_of::<*const c_void>(), align);
+                        let ptr_padding =
+                            FfiInterface::alignment(size_of::<*const c_void>(), align);
                         let string_len = value.get_string_val().len() + 1;
 
                         let string_padding = FfiInterface::alignment(string_len, align);
 
-                        Ok(( size_of::<*const c_void>() + ptr_padding, string_len + string_padding ))
+                        Ok((
+                            size_of::<*const c_void>() + ptr_padding,
+                            string_len + string_padding,
+                        ))
                     }),
-                    base_size: Rc::new(|align|
-                    {
+                    base_size: Rc::new(|align| {
                         let padding = FfiInterface::alignment(2, align);
                         size_of::<*const c_void>() + padding
-                    })
-                }))
-            )
+                    }),
+                })),
+            ),
         ])
     }
 
     /// Calculate the padding needed to align a value to the given alignment.
-    fn alignment(size: usize, align: usize) -> usize
-    {
+    fn alignment(size: usize, align: usize) -> usize {
         let aligned_size = (size + align - 1) & !(align - 1);
-        
 
         aligned_size - size
     }
 
     /// Convert a Value to a native integer type.
-    fn conversion_to_int(interpreter: &mut dyn Interpreter,
-                         value: &Value,
-                         align: usize,
-                         size: usize,
-                         buffer: &BufferPtr) -> error::Result<()>
-    {
+    fn conversion_to_int(
+        interpreter: &mut dyn Interpreter,
+        value: &Value,
+        align: usize,
+        size: usize,
+        buffer: &BufferPtr,
+    ) -> error::Result<()> {
         let padding = FfiInterface::alignment(size, align);
 
-        if !value.is_numeric()
-        {
+        if !value.is_numeric() {
             return script_error_str(interpreter, "Value is not numeric.");
         }
 
@@ -583,11 +518,12 @@ impl FfiInterface
     }
 
     /// Convert from a native integer type to a integer Value.
-    fn conversion_from_int(align: usize,
-                           size: usize,
-                           is_signed: bool,
-                           buffer: &BufferPtr) -> error::Result<Value>
-    {
+    fn conversion_from_int(
+        align: usize,
+        size: usize,
+        is_signed: bool,
+        buffer: &BufferPtr,
+    ) -> error::Result<Value> {
         let padding = FfiInterface::alignment(size, align);
 
         let value = buffer.borrow_mut().read_int(size, is_signed);
@@ -597,16 +533,16 @@ impl FfiInterface
     }
 
     /// Convert a Value to a native floating point type.
-    fn conversion_to_float(interpreter: &mut dyn Interpreter,
-                           value: &Value,
-                           align: usize,
-                           size: usize,
-                           buffer: &BufferPtr) -> error::Result<()>
-    {
+    fn conversion_to_float(
+        interpreter: &mut dyn Interpreter,
+        value: &Value,
+        align: usize,
+        size: usize,
+        buffer: &BufferPtr,
+    ) -> error::Result<()> {
         let padding = FfiInterface::alignment(size, align);
 
-        if !value.is_numeric()
-        {
+        if !value.is_numeric() {
             return script_error_str(interpreter, "Value is not numeric.");
         }
 
@@ -617,10 +553,11 @@ impl FfiInterface
     }
 
     /// Convert from a native floating point type to a floating point Value.
-    fn conversion_from_float(align: usize,
-                             size: usize,
-                             buffer: &BufferPtr) -> error::Result<Value>
-    {
+    fn conversion_from_float(
+        align: usize,
+        size: usize,
+        buffer: &BufferPtr,
+    ) -> error::Result<Value> {
         let padding = FfiInterface::alignment(size, align);
 
         let value = buffer.borrow_mut().read_float(size);
@@ -630,13 +567,10 @@ impl FfiInterface
     }
 }
 
-
 /// Structure that handles a word that calls a foreign function.
-struct FfiWord
-{
+struct FfiWord {
     /// The library that contains the function.
     library: Rc<RefCell<Library>>,
-
 
     /// The name of the library.
     library_name: String,
@@ -644,86 +578,75 @@ struct FfiWord
     /// The name of the function to call in the library.
     function_name: String,
 
-
     /// The types of the arguments to the function.
     arg_types: Vec<Rc<RefCell<TypeInfo>>>,
 
     /// The function's return type.
     return_type: Rc<RefCell<TypeInfo>>,
 
-
     /// The alignment of the function's arguments and return value.
-    alignment: usize
+    alignment: usize,
 }
-
 
 /// Implement the Fn trait for FfiWord to make the struct callable.
-impl Fn<( &mut dyn Interpreter, )> for FfiWord
-{
-    extern "rust-call" fn call(&self, args: ( &mut dyn Interpreter, ) ) -> error::Result<()>
-    {
+impl Fn<(&mut dyn Interpreter,)> for FfiWord {
+    extern "rust-call" fn call(&self, args: (&mut dyn Interpreter,)) -> error::Result<()> {
         self.handle_word(args.0)
     }
 }
-
 
 /// Implement the FnMut trait for FfiWord to make the struct callable.
-impl FnMut<( &mut dyn Interpreter, )> for FfiWord
-{
-    extern "rust-call" fn call_mut(&mut self, args: ( &mut dyn Interpreter, )) -> error::Result<()>
-    {
+impl FnMut<(&mut dyn Interpreter,)> for FfiWord {
+    extern "rust-call" fn call_mut(&mut self, args: (&mut dyn Interpreter,)) -> error::Result<()> {
         self.handle_word(args.0)
     }
 }
-
 
 /// Implement the FnOnce trait for the FfiWord to make the struct callable.
-impl FnOnce<( &mut dyn Interpreter, )> for FfiWord
-{
+impl FnOnce<(&mut dyn Interpreter,)> for FfiWord {
     type Output = error::Result<()>;
 
-    extern "rust-call" fn call_once(self, args: ( &mut dyn Interpreter, )) -> error::Result<()>
-    {
+    extern "rust-call" fn call_once(self, args: (&mut dyn Interpreter,)) -> error::Result<()> {
         self.handle_word(args.0)
     }
 }
 
-
-impl FfiWord
-{
+impl FfiWord {
     /// Create a new FfiWord handler.
-    pub fn new(library: Rc<RefCell<Library>>,
-               library_name: String,
-               function_name: String,
-               arg_types: Vec<Rc<RefCell<TypeInfo>>>,
-               return_type: Rc<RefCell<TypeInfo>>) -> FfiWord
-    {
-        FfiWord
-            {
-                library,
-                library_name,
-                function_name,
-                arg_types,
-                return_type,
-                alignment: 8
-            }
+    pub fn new(
+        library: Rc<RefCell<Library>>,
+        library_name: String,
+        function_name: String,
+        arg_types: Vec<Rc<RefCell<TypeInfo>>>,
+        return_type: Rc<RefCell<TypeInfo>>,
+    ) -> FfiWord {
+        FfiWord {
+            library,
+            library_name,
+            function_name,
+            arg_types,
+            return_type,
+            alignment: 8,
+        }
     }
 
     /// Handle the word by calling the foreign function.
-    fn handle_word(&self, interpreter: &mut dyn Interpreter) -> error::Result<()>
-    {
+    fn handle_word(&self, interpreter: &mut dyn Interpreter) -> error::Result<()> {
         let library = self.library.borrow();
 
         // Get the function from the library.
         let function: Symbol<*mut c_void> =
-            match unsafe { library.get(self.function_name.as_bytes()) }
-            {
+            match unsafe { library.get(self.function_name.as_bytes()) } {
                 Ok(function) => function,
-                Err(error) => return script_error(interpreter,
-                                                  format!("Failed to get library {} symbol {}: {}.",
-                                                          self.library_name,
-                                                          self.function_name,
-                                                          error))
+                Err(error) => {
+                    return script_error(
+                        interpreter,
+                        format!(
+                            "Failed to get library {} symbol {}: {}.",
+                            self.library_name, self.function_name, error
+                        ),
+                    );
+                }
             };
 
         // Allocate the buffers for the parameters and populate them.  We also get the array of
@@ -731,52 +654,62 @@ impl FfiWord
         let buffer: BufferPtr = ByteBuffer::new_ptr(0);
         let extra_buffer: BufferPtr = ByteBuffer::new_ptr(0);
 
-        let mut param_value_ptrs = self.get_param_value_ptrs(interpreter,
-                                                             &buffer,
-                                                             &extra_buffer)?;
+        let mut param_value_ptrs =
+            self.get_param_value_ptrs(interpreter, &buffer, &extra_buffer)?;
 
         // Allocate the buffer for the return value.
         let return_buffer =
-                         ByteBuffer::new_ptr((self.return_type.borrow().base_size)(self.alignment));
+            ByteBuffer::new_ptr((self.return_type.borrow().base_size)(self.alignment));
         let mut return_buffer: BufferPtr = return_buffer.clone();
 
         // Create the array of raw ffi_type pointers for creating the ffi_cif.
-        let mut arg_types = self.arg_types.iter().map(|type_info| type_info.borrow().ffi_type).collect::<Vec<_>>();
+        let mut arg_types = self
+            .arg_types
+            .iter()
+            .map(|type_info| type_info.borrow().ffi_type)
+            .collect::<Vec<_>>();
 
         // Create teh ffi cif and if successful call the function.
         let mut cif: ffi_cif = unsafe { std::mem::zeroed() };
-        let code_ptr = unsafe { Some(std::mem::transmute::<*mut std::ffi::c_void, unsafe extern "C" fn()>(*function)) };
+        let code_ptr = unsafe {
+            Some(std::mem::transmute::<
+                *mut std::ffi::c_void,
+                unsafe extern "C" fn(),
+            >(*function))
+        };
 
-        let status = unsafe
-            {
-                ffi_prep_cif(&mut cif,
-                             ffi_abi_FFI_DEFAULT_ABI,
-                             arg_types.len() as u32,
-                             self.return_type.borrow().ffi_type,
-                             arg_types.as_mut_ptr())
-            };
+        let status = unsafe {
+            ffi_prep_cif(
+                &mut cif,
+                ffi_abi_FFI_DEFAULT_ABI,
+                arg_types.len() as u32,
+                self.return_type.borrow().ffi_type,
+                arg_types.as_mut_ptr(),
+            )
+        };
 
-        if status != ffi_status_FFI_OK
-        {
+        if status != ffi_status_FFI_OK {
             return script_error_str(interpreter, "Failed to create FFI cif.");
         }
 
-        unsafe
-        {
-            ffi_call(&mut cif,
-                     code_ptr,
-                     return_buffer.borrow_mut().byte_ptr_mut(),
-                     param_value_ptrs.as_mut_ptr());
+        unsafe {
+            ffi_call(
+                &mut cif,
+                code_ptr,
+                return_buffer.borrow_mut().byte_ptr_mut(),
+                param_value_ptrs.as_mut_ptr(),
+            );
         }
 
         // Convert the return value to an interpreter Value and push it onto the data stack.  But
         // only if the return type is not void.
-        let value = (self.return_type.borrow().conversion_to)(interpreter,
-                                                              self.alignment,
-                                                              &mut return_buffer)?;
+        let value = (self.return_type.borrow().conversion_to)(
+            interpreter,
+            self.alignment,
+            &mut return_buffer,
+        )?;
 
-        if !value.is_none()
-        {
+        if !value.is_none() {
             interpreter.push(value);
         }
 
@@ -786,11 +719,12 @@ impl FfiWord
 
     /// Pop the parameters from the data stack, convert them to the native types in the supplied
     /// byte buffers, and return a vector of pointers to the converted values.
-    fn get_param_value_ptrs(&self,
-                            interpreter: &mut dyn Interpreter,
-                            buffer: &BufferPtr,
-                            extra_buffer: &BufferPtr) -> error::Result<Vec<*mut c_void>>
-    {
+    fn get_param_value_ptrs(
+        &self,
+        interpreter: &mut dyn Interpreter,
+        buffer: &BufferPtr,
+        extra_buffer: &BufferPtr,
+    ) -> error::Result<Vec<*mut c_void>> {
         let args_len = self.arg_types.len();
 
         let mut arg_values: Vec<Value> = Vec::with_capacity(args_len);
@@ -804,9 +738,11 @@ impl FfiWord
         for index in 0..args_len {
             let index = args_len - index - 1;
             let value = interpreter.pop()?;
-            let (size, extra) = (self.arg_types[index].borrow().conversion_size)(interpreter,
-                                                                                self.alignment,
-                                                                                &value)?;
+            let (size, extra) = (self.arg_types[index].borrow().conversion_size)(
+                interpreter,
+                self.alignment,
+                &value,
+            )?;
 
             base_size += size;
             extra_size += extra;
@@ -819,54 +755,54 @@ impl FfiWord
 
         for (index, value) in arg_values.iter().enumerate() {
             arg_value_ptrs.push(buffer.borrow_mut().position_ptr_mut());
-            (self.arg_types[index].borrow().conversion_from)(interpreter,
-                                                             value,
-                                                             self.alignment,
-                                                             buffer,
-                                                             extra_buffer)?;
+            (self.arg_types[index].borrow().conversion_from)(
+                interpreter,
+                value,
+                self.alignment,
+                buffer,
+                extra_buffer,
+            )?;
         }
 
         Ok(arg_value_ptrs)
     }
 }
 
-
-
 /// Load a native library and register it with the ffi interface under the library's alias name.
-fn word_ffi_open(interpreter: &mut dyn Interpreter) -> error::Result<()>
-{
+fn word_ffi_open(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let register_name = interpreter.pop_as_string()?;
     let lib_name = interpreter.pop_as_string()?;
 
-    if interpreter.ffi().libs.contains_key(&register_name)
-    {
-        error::script_error(interpreter, format!("Library {} is already loaded.", register_name))?;
+    if interpreter.ffi().libs.contains_key(&register_name) {
+        error::script_error(
+            interpreter,
+            format!("Library {} is already loaded.", register_name),
+        )?;
     }
 
     let lib = unsafe { Library::new(lib_name.clone()) };
 
-    match lib
-    {
-        Ok(lib) =>
-            {
-                let _ = interpreter.ffi_mut().libs.insert(register_name,
-                                                          Rc::new(RefCell::new(lib)));
-            },
+    match lib {
+        Ok(lib) => {
+            let _ = interpreter
+                .ffi_mut()
+                .libs
+                .insert(register_name, Rc::new(RefCell::new(lib)));
+        }
 
-        Err(error) =>
-            {
-                return script_error(interpreter, format!("Failed to load library {}: {}.",
-                                                         lib_name,
-                                                         error));
-            }
+        Err(error) => {
+            return script_error(
+                interpreter,
+                format!("Failed to load library {}: {}.", lib_name, error),
+            );
+        }
     }
 
     Ok(())
 }
 
 /// Create a new word that calls a foreign function.
-fn word_ffi_fn(interpreter: &mut dyn Interpreter) -> error::Result<()>
-{
+fn word_ffi_fn(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let ret_type_name = interpreter.pop_as_string()?;
     let param_type_names = interpreter.pop_as_array()?;
     let mut fn_alias = interpreter.pop_as_string()?;
@@ -879,8 +815,7 @@ fn word_ffi_fn(interpreter: &mut dyn Interpreter) -> error::Result<()>
     let fn_name = fn_name.get_string_val();
 
     // If the alias is empty, use the function name as the alias.
-    if fn_alias.is_empty()
-    {
+    if fn_alias.is_empty() {
         fn_alias = fn_name.clone();
     }
 
@@ -905,87 +840,94 @@ fn word_ffi_fn(interpreter: &mut dyn Interpreter) -> error::Result<()>
     }
 
     // Get the type information for the parameter types.
-    let arg_type_infos =
-        {
-            let mut arg_type_infos = Vec::with_capacity(param_type_names.borrow().len());
+    let arg_type_infos = {
+        let mut arg_type_infos = Vec::with_capacity(param_type_names.borrow().len());
 
-            for param_type_name in param_type_names.borrow().iter()
-            {
-                let param_type_name = match param_type_name.is_token()
-                    {
-                        true => param_type_name.to_string(),
-                        false => return script_error_str(interpreter,
-                                                       "Parameter type name, {}, is not a string.",
-                                                       )
-                    };
+        for param_type_name in param_type_names.borrow().iter() {
+            let param_type_name = match param_type_name.is_token() {
+                true => param_type_name.to_string(),
+                false => {
+                    return script_error_str(
+                        interpreter,
+                        "Parameter type name, {}, is not a string.",
+                    );
+                }
+            };
 
-                let type_info = match interpreter.ffi().types.get(&param_type_name)
-                    {
-                        Some(type_info) => type_info,
-                        None => return script_error(interpreter,
-                                                    format!("Unknown ffi type name {}.",
-                                                            param_type_name))
-                    };
+            let type_info = match interpreter.ffi().types.get(&param_type_name) {
+                Some(type_info) => type_info,
+                None => {
+                    return script_error(
+                        interpreter,
+                        format!("Unknown ffi type name {}.", param_type_name),
+                    );
+                }
+            };
 
-                arg_type_infos.push(type_info.clone());
-            }
+            arg_type_infos.push(type_info.clone());
+        }
 
-            arg_type_infos
-        };
+        arg_type_infos
+    };
 
     // Get the type information for the return value.
-    let ret_type_info = match interpreter.ffi().types.get(&ret_type_name)
-        {
-            Some(ret_type_info) => ret_type_info.clone(),
-            None => return script_error(interpreter, format!("Unknown ffi type name {}.",
-                                                             ret_type_name))
-        };
+    let ret_type_info = match interpreter.ffi().types.get(&ret_type_name) {
+        Some(ret_type_info) => ret_type_info.clone(),
+        None => {
+            return script_error(
+                interpreter,
+                format!("Unknown ffi type name {}.", ret_type_name),
+            );
+        }
+    };
 
     // Create the signature for the word's description.
-    let arg_signature =
-        {
-            let mut signature = String::new();
+    let arg_signature = {
+        let mut signature = String::new();
 
-            if !arg_type_infos.is_empty()
-            {
-                for arg_type in arg_type_infos.iter()
-                {
-                    signature.push_str(&arg_type.borrow().name);
-                    signature.push(' ');
-                }
-
-                signature.push_str("-- ");
-            }
-            else
-            {
-                signature = " -- ".to_string();
+        if !arg_type_infos.is_empty() {
+            for arg_type in arg_type_infos.iter() {
+                signature.push_str(&arg_type.borrow().name);
+                signature.push(' ');
             }
 
-            signature.push_str(&ret_type_name);
+            signature.push_str("-- ");
+        } else {
+            signature = " -- ".to_string();
+        }
 
-            signature
-        };
+        signature.push_str(&ret_type_name);
+
+        signature
+    };
 
     // Create the word handler for the foreign function, then add the new word to the interpreter.
-    let word = FfiWord::new(lib, lib_name.clone(), fn_name.clone(), arg_type_infos, ret_type_info);
+    let word = FfiWord::new(
+        lib,
+        lib_name.clone(),
+        fn_name.clone(),
+        arg_type_infos,
+        ret_type_info,
+    );
 
-    interpreter.add_word(location.path().clone(),
-                         location.line(),
-                         location.column(),
-                         fn_alias,
-                         Rc::new(word),
-                         format!("Call native function {} in library {}.", fn_name, lib_name),
-                         arg_signature,
-                         WordRuntime::Normal,
-                         WordVisibility::Visible,
-                         WordType::Native);
+    interpreter.add_word(
+        location.path().clone(),
+        location.line(),
+        location.column(),
+        fn_alias,
+        Rc::new(word),
+        format!("Call native function {} in library {}.", fn_name, lib_name),
+        arg_signature,
+        WordRuntime::Normal,
+        WordVisibility::Visible,
+        WordType::Native,
+    );
 
     Ok(())
 }
 
 // Create a new structure compatible with the ffi interface.
-fn word_ffi_struct(interpreter: &mut dyn Interpreter) -> error::Result<()>
-{
+fn word_ffi_struct(interpreter: &mut dyn Interpreter) -> error::Result<()> {
     let found_initializers = interpreter.pop_as_bool()?;
     let _is_hidden = interpreter.pop_as_bool()?;
     let _type_names = interpreter.pop_as_array()?;
@@ -998,42 +940,51 @@ fn word_ffi_struct(interpreter: &mut dyn Interpreter) -> error::Result<()>
     let _name = name.text(interpreter)?;
 
     // Get an array of default values if they were found.  Otherwise use the default value of none.
-    let _defaults =
-        if found_initializers
-        {
-            interpreter.pop_as_array()?
-        }
-        else
-        {
-            ValueVec::new(raw_field_names.borrow().len())
-        };
+    let _defaults = if found_initializers {
+        interpreter.pop_as_array()?
+    } else {
+        ValueVec::new(raw_field_names.borrow().len())
+    };
 
     Ok(())
 }
 
 // Register a new ffi array type for an existing ffi type.
-fn word_ffi_array(_interpreter: &mut dyn Interpreter) -> error::Result<()>
-{
+fn word_ffi_array(_interpreter: &mut dyn Interpreter) -> error::Result<()> {
     Ok(())
 }
 
-
 // Register the ffi words with the interpreter.
-pub fn register_ffi_words(interpreter: &mut dyn Interpreter)
-{
-    add_native_word!(interpreter, "ffi.load", word_ffi_open,
+pub fn register_ffi_words(interpreter: &mut dyn Interpreter) {
+    add_native_word!(
+        interpreter,
+        "ffi.load",
+        word_ffi_open,
         "Load an binary library and register it with the ffi interface.",
-        "lib-name -- ");
+        "lib-name -- "
+    );
 
-    add_native_word!(interpreter, "ffi.fn", word_ffi_fn,
+    add_native_word!(
+        interpreter,
+        "ffi.fn",
+        word_ffi_fn,
         "Bind to an external function.",
-        "lib-name fn-name fn-alias fn-params ret-name -- ");
+        "lib-name fn-name fn-alias fn-params ret-name -- "
+    );
 
-    add_native_word!(interpreter, "ffi.#", word_ffi_struct,
+    add_native_word!(
+        interpreter,
+        "ffi.#",
+        word_ffi_struct,
         "Create a structure compatible with the ffi interface.",
-        "found_initializers is_hidden types fields packing name [defaults] -- ");
+        "found_initializers is_hidden types fields packing name [defaults] -- "
+    );
 
-    add_native_word!(interpreter, "ffi.[]", word_ffi_array,
+    add_native_word!(
+        interpreter,
+        "ffi.[]",
+        word_ffi_array,
         "Register a new ffi array type for the existing ffi type.",
-        "struct-name -- ");
+        "struct-name -- "
+    );
 }
